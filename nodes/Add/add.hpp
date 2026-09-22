@@ -1,0 +1,9 @@
+#ifndef VISIONFLOW_PLUGIN_ADD_HPP_
+#define VISIONFLOW_PLUGIN_ADD_HPP_
+
+#include <DSPatch.h>
+
+
+
+
+#endif	// VISIONFLOW_PLUGIN_ADD_HPP_

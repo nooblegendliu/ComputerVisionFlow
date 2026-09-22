@@ -1,0 +1,9 @@
+*.pyc
+CMakeLists.txt.user
+
+build*/
+.vscode/
+
+qt-build
+
+tags
