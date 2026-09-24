@@ -1,10 +1,15 @@
 #pragma once
 
-#include <iostream>
+#include <functional>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 #include <memory>
 
 #include <DSPatch.h>
 #include <flowTypes.h>
+#include <flowNode.h>
 
 namespace FlowCV
 {
@@ -63,9 +68,18 @@ namespace FlowCV
         desc.output_count =
             prototype->GetOutputCount();
 
-        factories_[desc.name] = []() {
+        if (factories_.contains(desc.name)) {
+            throw std::logic_error("Node already registered: " + desc.name);
+        }
+
+        factories_.emplace(desc.name, []() -> std::shared_ptr<DSPatch::Component>
+        {
             return std::make_shared<T>();
-        };
+        });
+
+        /*factories_[desc.name] = []() {
+            return std::make_shared<T>();
+        };*/
 
         node_list_.push_back(std::move(desc));
     }
