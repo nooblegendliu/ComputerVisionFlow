@@ -266,9 +266,9 @@ namespace FlowCV
         ValidateValue(*record, value);
         if (record->writeValue != value) {
             record->writeValue = value;
+            record->pendingChange = true;
             ++revision_;
         }
-        record->pendingChange = true;
     }
 
     void FlowCV_Properties::SetMin(const std::string& key, int value)
@@ -416,8 +416,12 @@ namespace FlowCV
     {
         std::lock_guard<std::mutex> lock(mutex_lock_);
         for (const auto& record : props_) {
-            if (record.visible)
-                std::visit([&](auto value) { j[record.key] = value; }, record.writeValue);
+
+            std::visit(
+                [&](auto value) {
+                    j[record.key] = value;
+                }, record.writeValue
+            );
         }
     }
 
