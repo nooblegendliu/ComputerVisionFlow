@@ -5,7 +5,7 @@ add_library(VisionFlowSdk STATIC
     "flowTypes.cpp"
     "flowProperties.h"
     "flowProperties.cpp"
-)
+ "flowNode.h")
 
 add_library(VisionFlow::Sdk ALIAS VisionFlowSdk)
 

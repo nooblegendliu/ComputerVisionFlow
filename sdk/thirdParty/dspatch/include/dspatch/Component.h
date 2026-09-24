@@ -88,8 +88,15 @@ namespace DSPatch {
 		void SetBufferCount(int bufferCount);
 		[[nodiscard]] int GetBufferCount() const;
 
-		virtual bool HasGui(int interface) = 0;
-		virtual void UpdateGui(void* context, int interface) = 0;
+		virtual bool HasGui(int interface)
+		{
+			return false;
+		}
+		virtual void UpdateGui(void* context, int interface)
+		{
+
+		}
+
 		virtual std::string GetState() = 0;
 		virtual void SetState(std::string&& json_serialized) = 0;
 
