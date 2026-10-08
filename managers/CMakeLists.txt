@@ -17,5 +17,6 @@ target_link_libraries(VisionFlowManagers
     PUBLIC
         VisionFlow::Sdk
     PRIVATE
-        VisionFlow::Utils
+        VisionFlow::Nodes
+        VisionFlow::Utils    
 )

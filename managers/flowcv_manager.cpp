@@ -1,21 +1,34 @@
 #include "flowcv_manager.h"
+
+#include <algorithm>
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <stdexcept>
+#include <utility>
+
 #include <logging/logger.h>
 
 namespace FlowCV
 {
 	FlowCV_Manager::FlowCV_Manager()
-	{
-		id_counter_ = 1001;
-		wire_id_counter_ = 500;
-		circuit_ = std::make_shared<DSPatch::Circuit>();
-		plugin_manager_ = std::make_shared<PluginManager>();
-		internal_node_manager_ = std::make_shared<InternalNodeManager>();
-	}
+        : id_counter_(1001), 
+        wire_id_counter_(500), 
+        circuit_(std::make_shared<DSPatch::Circuit>()),
+        plugin_manager_(std::make_shared<PluginManager>()),
+        internal_node_manager_(std::make_shared<InternalNodeManager>())
+	{}
 
 	FlowCV_Manager::~FlowCV_Manager()
 	{
-		nodes_.clear();
-		circuit_->RemoveAllComponents();
+		/*nodes_.clear();
+		circuit_->RemoveAllComponents();*/
+        if (circuit_) {
+            circuit_->StopAutoTick();
+            circuit_->RemoveAllComponents();
+        }
+        wiring_.clear();
+        nodes_.clear();
 	}
 
 
@@ -25,6 +38,10 @@ namespace FlowCV
 
 		for (const auto& node : nodes_) {
 			if (node.id >= nextId) {
+                if (node.id > std::numeric_limits<uint64_t>::max() - 1000)
+                {
+                    throw std::overflow_error("Node id overflow");
+                }
 				nextId = node.id + 1000;
 			}
 		}
@@ -32,61 +49,121 @@ namespace FlowCV
 		return nextId;
 	}
 
-    uint64_t FlowCV_Manager::AddNewNodeInstance(const char* name, bool ext, uint64_t id)
+    uint64_t FlowCV_Manager::AddNewNodeInstance(const char* name, bool external_plugin, uint64_t id)
     {
-        NodeInfo ni;
-        uint64_t ret_id = 0;
+        if (name == nullptr || *name == '\0') return 0;
 
-        if (ext)
-            ni.node_ptr = plugin_manager_->CreatePluginInstance(name);
-        else
-            ni.node_ptr = internal_node_manager_->CreateNodeInstance(name);
-
-        if (ni.node_ptr != nullptr) {
-            ni.showControlUI = false;
-            ni.desc.name = name;
-            ni.desc.category = ni.node_ptr->GetComponentCategory();
-            ni.desc.author = ni.node_ptr->GetComponentAuthor();
-            ni.desc.version = ni.node_ptr->GetComponentVersion();
-            ni.desc.input_count = ni.node_ptr->GetInputCount();
-            ni.desc.output_count = ni.node_ptr->GetOutputCount();
-            ni.input_conn_map.resize(ni.desc.input_count);
-            if (id == 0) {
-                ni.id = GetNextId();
-            }
-            else {
-                ni.id = id;
-                // GetNextId();
-            }
-
-            int res = circuit_->AddComponent(ni.node_ptr);
-            if (res != -1)
-                ret_id = ni.id;
-
-            // Check Instance Count in case we have a loaded state causing a duplicate number
-            CheckInstCountValue(ni);
-
-            nodes_.emplace_back(std::move(ni));
+        /*
+        *   State加载时允许指定ID
+        *   但不允许ID冲突
+        */
+        if (id != 0 && GetNodeIndexFromId(id) >= 0) {
+            LOG_WARN("Node id already exists: {}", id);
+            return 0;
         }
 
-        return ret_id;
+        NodeInfo nodeInfo;
+
+        if (external_plugin) {
+            nodeInfo.node_ptr = plugin_manager_->CreatePluginInstance(name);
+        }
+        else {
+            nodeInfo.node_ptr = internal_node_manager_->CreateNodeInstance(name);
+        }
+
+        if (!nodeInfo.node_ptr) {
+            LOG_WARN("Unable to create node: {}", name);
+            return 0;
+        }
+
+        nodeInfo.desc.name = nodeInfo.node_ptr->GetComponentName();
+        nodeInfo.desc.category = nodeInfo.node_ptr->GetComponentCategory();
+        nodeInfo.desc.author = nodeInfo.node_ptr->GetComponentAuthor();
+        nodeInfo.desc.version = nodeInfo.node_ptr->GetComponentVersion();
+        nodeInfo.desc.input_count = nodeInfo.node_ptr->GetInputCount();
+        nodeInfo.desc.output_count = nodeInfo.node_ptr->GetOutputCount();
+        nodeInfo.input_conn_map.resize(static_cast<std::size_t>(nodeInfo.desc.input_count));
+
+        if (id == 0) {
+            nodeInfo.id = GetNextId();
+        }
+        else {
+            nodeInfo.id = id;
+        }
+
+        /*
+        *   保证同一类型Node的Instance count唯一
+        */
+        CheckInstCountValue(nodeInfo);
+
+        // fix: 只有Circuit成功接收节点才能进入nodes_
+        const int componentIndex = circuit_->AddComponent(nodeInfo.node_ptr);
+        if (componentIndex < 0) {
+            LOG_ERROR("Failed to add node to DSPatch circuit: {}", name);
+            return 0;
+        }
+
+        const uint64_t newId = nodeInfo.id;
+        nodes_.push_back(std::move(nodeInfo));
+        return newId;
     }
 
     uint64_t FlowCV_Manager::CreateNewNodeInstance(const char* name)
     {
+        if (name == nullptr || *name == '\0') return 0;
+
+        // 暂时保持FlowCV原行为: plugin优先于Internal Node
         if (plugin_manager_->HasPlugin(name)) {
             return AddNewNodeInstance(name, true);
         }
-        else if (internal_node_manager_->HasNode(name)) {
+        if (internal_node_manager_->HasNode(name)) {
             return AddNewNodeInstance(name, false);
         }
 
+        LOG_WARN("Node not found: {}", name);
         return 0;
     }
 
+    // FlowCV节点实例编号管理逻辑，保证同一类型Node拥有图中唯一递增的实例编号
+    void FlowCV_Manager::CheckInstCountValue(NodeInfo& nodeInfo)
+    {
+        int currentNumber =
+            nodeInfo.node_ptr
+            ->GetInstanceCount();
+
+        if (currentNumber < 0) {
+            currentNumber = 0;
+        }
+
+        for (const auto& node : nodes_) {
+            if (nodeInfo.desc.name
+                == node.desc.name &&
+                nodeInfo.id != node.id) {
+
+                const int existingNumber =
+                    node.node_ptr
+                    ->GetInstanceCount();
+
+                if (currentNumber
+                    <= existingNumber) {
+                    currentNumber =
+                        existingNumber + 1;
+                }
+            }
+        }
+
+        nodeInfo.node_ptr
+            ->SetInstanceCount(
+                currentNumber);
+    }
+
+
     void FlowCV_Manager::SetBufferCount(uint32_t num_buffers)
     {
-        circuit_->SetBufferCount(num_buffers);
+        if (num_buffers > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+            throw std::out_of_range("DSPatch buffer count exceeds int range");
+        }
+        circuit_->SetBufferCount(static_cast<int>(num_buffers));
     }
 
     int FlowCV_Manager::GetBufferCount()
@@ -94,61 +171,43 @@ namespace FlowCV
         return circuit_->GetBufferCount();
     }
 
-    // FlowCV节点实例编号管理逻辑，保证同一类型Node拥有图中唯一递增的实例编号
-    void FlowCV_Manager::CheckInstCountValue(NodeInfo& ni)
-    {
-        int cur_num = ni.node_ptr->GetInstanceCount();
-        for (const auto& node : nodes_) {
-            if (ni.desc.name == node.desc.name && ni.id != node.id) {
-                if (cur_num <= node.node_ptr->GetInstanceCount()) {
-                    cur_num = node.node_ptr->GetInstanceCount() + 1;
-                }
-            }
-        }
-        ni.node_ptr->SetInstanceCount(cur_num);
-    }
-
+    
     // 获取节点数量
     uint64_t FlowCV_Manager::GetNodeCount()
     {
-        return (uint64_t)nodes_.size();
+        return static_cast<uint64_t>(nodes_.size());
     }
 
     // 根据索引获取对应节点信息
-    bool FlowCV_Manager::GetNodeInfoByIndex(uint64_t index, NodeInfo& nInfo)
+    bool FlowCV_Manager::GetNodeInfoByIndex(uint64_t index, NodeInfo& nodeInfo)
     {
+        if (index >= nodes_.size()) return false;
+        nodeInfo = nodes_[static_cast<std::size_t>(index)];
 
-        if (index >= 0 && index < nodes_.size()) {
-            nInfo.showControlUI = nodes_.at(index).showControlUI;
-            nInfo.desc.name = nodes_.at(index).desc.name;
-            nInfo.desc.category = nodes_.at(index).node_ptr->GetComponentCategory();
-            nInfo.desc.author = nodes_.at(index).node_ptr->GetComponentAuthor();
-            nInfo.desc.version = nodes_.at(index).node_ptr->GetComponentVersion();
-            nInfo.desc.input_count = nodes_.at(index).desc.input_count;
-            nInfo.desc.output_count = nodes_.at(index).desc.output_count;
-            nInfo.id = nodes_.at(index).id;
-            nInfo.input_conn_map.assign(nodes_.at(index).input_conn_map.begin(), nodes_.at(index).input_conn_map.end());
-            nInfo.node_ptr = nodes_.at(index).node_ptr;
-            return true;
-        }
-
-        return false;
+        return true;
     }
 
     bool FlowCV_Manager::GetNodeInfoById(uint64_t id, NodeInfo& nInfo)
     {
-        return GetNodeInfoByIndex(GetNodeIndexFromId(id), nInfo);
+        const int index = GetNodeIndexFromId(id);
+        
+        if (index < 0) return false;
+
+        return GetNodeInfoByIndex(static_cast<uint64_t>(index), nInfo);
     }
 
     int FlowCV_Manager::GetNodeIndexFromId(uint64_t id)
     {
 
-        for (int i = 0; i < nodes_.size(); i++) {
-            if (nodes_.at(i).id == id) {
-                return i;
+        for (std::size_t i = 0; i < nodes_.size(); ++i) {
+            if (nodes_[i].id == id) {
+                return static_cast<int>(i);
             }
         }
-        return 0;
+        /*
+        *   原FlowCV返回0, 会将找不到误认为第一个节点
+        */
+        return -1;
     }
 
     uint64_t FlowCV_Manager::GetNodeIdFromIndex(uint64_t index)
@@ -159,271 +218,740 @@ namespace FlowCV
         return 0;
     }
 
-    // 状态相关函数
-    nlohmann::json FlowCV_Manager::GetState()
+    std::shared_ptr<FlowCV::Node> FlowCV_Manager::GetFlowNodeById(uint64_t id)
     {
-        using namespace nlohmann;
-        json state;
-        json nodes;
-        json connections;
+        const int index = GetNodeIndexFromId(id);
 
-        for (const auto& node : nodes_) {
-            json n;
-            n["name"] = node.desc.name;
-            n["id"] = node.id;
-            n["num"] = node.node_ptr->GetInstanceCount();
-            n["enabled"] = node.node_ptr->IsEnabled();
-            std::string state_str = node.node_ptr->GetState();
-            if (!state_str.empty()) {
-                json node_state = json::parse(state_str);
-                n["params"] = node_state;
-            }
-            nodes.push_back(n);
+        if (index < 0) {
+            return nullptr;
         }
-        state["nodes"] = nodes;
 
-        for (const auto& wire : wiring_) {
-            json w;
-            w["from_id"] = wire.from.id;
-            w["from_idx"] = wire.from.index;
-            w["to_id"] = wire.to.id;
-            w["to_idx"] = wire.to.index;
-            connections.push_back(w);
-        }
-        state["connections"] = connections;
-
-        return std::move(state);
+        return std::dynamic_pointer_cast<FlowCV::Node>(
+            nodes_[static_cast<std::size_t>(index)].node_ptr);
     }
 
-    bool FlowCV_Manager::SetState(nlohmann::json& state)
+    bool FlowCV_Manager::GetNodePropertiesSnapshot(uint64_t node_id, PropertiesSnapshot& snapshot)
     {
-        bool res = true;
+        auto node = GetFlowNodeById(node_id);
+
+        if (!node) {
+            return false;
+        }
+
+        snapshot = node->GetPropertiesSnapshot();
+
+        return true;
+    }
+
+    bool FlowCV_Manager::SetNodeProperty(
+        uint64_t node_id,
+        const std::string& key,
+        bool value)
+    {
+        auto node = GetFlowNodeById(node_id);
+
+        if (!node) {
+            return false;
+        }
 
         try {
+            node->Properties().Set(
+                key,
+                value);
+        }
+        catch (const std::exception& e) {
+            LOG_ERROR(
+                "Failed to set property '{}': {}",
+                key,
+                e.what());
 
+            return false;
+        }
+
+        return true;
+    }
+
+    bool FlowCV_Manager::SetNodeProperty(
+            uint64_t node_id,
+            const std::string& key,
+            int value)
+    {
+        auto node = GetFlowNodeById(node_id);
+
+        if (!node) {
+            return false;
+        }
+
+        try {
+            node->Properties().Set(
+                key,
+                value);
+        }
+        catch (const std::exception& e) {
+            LOG_ERROR(
+                "Failed to set property '{}': {}",
+                key,
+                e.what());
+
+            return false;
+        }
+
+        return true;
+    }
+
+    bool FlowCV_Manager::SetNodeProperty(
+            uint64_t node_id,
+            const std::string& key,
+            float value)
+    {
+        auto node = GetFlowNodeById(node_id);
+
+        if (!node) {
+            return false;
+        }
+
+        try {
+            node->Properties().Set(
+                key,
+                value);
+        }
+        catch (const std::exception& e) {
+            LOG_ERROR(
+                "Failed to set property '{}': {}",
+                key,
+                e.what());
+
+            return false;
+        }
+
+        return true;
+    }
+
+
+    // -----------------------------------------------------------------
+    //  State Functions
+    // -----------------------------------------------------------------
+    nlohmann::json FlowCV_Manager::GetState()
+    {
+        using nlohmann::json;
+
+        json state =
+            json::object();
+
+        json nodeStates =
+            json::array();
+
+        json connectionStates =
+            json::array();
+
+        for (const auto& node : nodes_) {
+            json serializedNode =
+                json::object();
+
+            serializedNode["name"] =
+                node.desc.name;
+
+            serializedNode["id"] =
+                node.id;
+
+            serializedNode["num"] =
+                node.node_ptr
+                ->GetInstanceCount();
+
+            serializedNode["enabled"] =
+                node.node_ptr
+                ->IsEnabled();
+
+            const std::string stateString =
+                node.node_ptr
+                ->GetState();
+
+            if (!stateString.empty()) {
+                serializedNode["params"] =
+                    json::parse(
+                        stateString);
+            }
+
+            nodeStates.push_back(
+                std::move(serializedNode));
+        }
+
+        state["nodes"] =
+            std::move(nodeStates);
+
+
+        for (const auto& wire : wiring_) {
+            json serializedWire =
+                json::object();
+
+            serializedWire["from_id"] =
+                wire.from.id;
+
+            serializedWire["from_idx"] =
+                wire.from.index;
+
+            serializedWire["to_id"] =
+                wire.to.id;
+
+            serializedWire["to_idx"] =
+                wire.to.index;
+
+            connectionStates.push_back(
+                std::move(serializedWire));
+        }
+
+        state["connections"] =
+            std::move(connectionStates);
+
+        return state;
+    }
+
+    bool FlowCV_Manager::SetState(
+            const nlohmann::json& state)
+    {
+        if (!state.is_object()) {
+            return false;
+        }
+
+        bool success = true;
+
+        try {
             NewState();
 
             if (state.contains("nodes")) {
-                for (const auto& node : state["nodes"]) {
-                    auto id = node["id"].get<uint64_t>();
-                    auto name = node["name"].get<std::string>();
-                    auto inst_num = node["num"].get<uint32_t>();
-                    bool enabled = true;
-                    if (node.contains("enabled"))
-                        enabled = node["enabled"].get<bool>();
-                    if (plugin_manager_->HasPlugin(name.c_str())) {
-                        uint64_t new_node_id = AddNewNodeInstance(name.c_str(), true, id);
-                        NodeInfo ni;
-                        GetNodeInfoById(new_node_id, ni);
-                        ni.node_ptr->SetInstanceCount(inst_num);
-                        ni.node_ptr->SetEnabled(enabled);
-                        CheckInstCountValue(ni);
-                        LOG_DEBUG("Adding Node Instance (Plugin): {}, {}", name, id);
-                        if (node.contains("params")) {
-                            ni.node_ptr->SetState(node["params"].dump());
-                        }
+                const auto& nodeStates =
+                    state.at("nodes");
+
+                if (!nodeStates.is_array()) {
+                    throw std::invalid_argument(
+                        "'nodes' must be an array");
+                }
+
+                for (const auto& serializedNode
+                    : nodeStates) {
+
+                    const uint64_t id =
+                        serializedNode
+                        .at("id")
+                        .get<uint64_t>();
+
+                    const std::string name =
+                        serializedNode
+                        .at("name")
+                        .get<std::string>();
+
+                    const int instanceNumber =
+                        serializedNode.value(
+                            "num",
+                            0);
+
+                    const bool enabled =
+                        serializedNode.value(
+                            "enabled",
+                            true);
+
+                    bool externalPlugin = false;
+
+                    if (plugin_manager_
+                        ->HasPlugin(
+                            name.c_str())) {
+
+                        externalPlugin = true;
                     }
-                    else {
-                        if (internal_node_manager_->HasNode(name.c_str())) {
-                            uint64_t new_node_id = AddNewNodeInstance(name.c_str(), false, id);
-                            NodeInfo ni;
-                            GetNodeInfoById(new_node_id, ni);
-                            ni.node_ptr->SetInstanceCount(inst_num);
-                            ni.node_ptr->SetEnabled(enabled);
-                            CheckInstCountValue(ni);
-                            LOG_DEBUG("Adding Node Instance (Plugin): {}, {}", name, id);
-                            if (node.contains("params")) {
-                                ni.node_ptr->SetState(node["params"].dump());
-                            }
-                        }
-                        else {
-                            LOG_DEBUG("Node Name: {} Not Found", name);
-                            res = false;
-                        }
+                    else if (
+                        !internal_node_manager_
+                        ->HasNode(
+                            name.c_str())) {
+
+                        LOG_WARN(
+                            "Node not found while loading state: {}",
+                            name);
+
+                        success = false;
+                        continue;
                     }
+
+                    const uint64_t newNodeId =
+                        AddNewNodeInstance(
+                            name.c_str(),
+                            externalPlugin,
+                            id);
+
+                    if (newNodeId == 0) {
+                        LOG_ERROR(
+                            "Unable to create node while loading state: {}",
+                            name);
+
+                        success = false;
+                        continue;
+                    }
+
+                    const int newNodeIndex =
+                        GetNodeIndexFromId(
+                            newNodeId);
+
+                    if (newNodeIndex < 0) {
+                        success = false;
+                        continue;
+                    }
+
+                    auto& nodeInfo =
+                        nodes_[
+                            static_cast<std::size_t>(
+                                newNodeIndex)];
+
+                    nodeInfo.node_ptr
+                        ->SetInstanceCount(
+                            instanceNumber);
+
+                    /*
+                     * 避免错误或旧工程文件中
+                     * 出现相同 instance number。
+                     */
+                    CheckInstCountValue(
+                        nodeInfo);
+
+                    nodeInfo.node_ptr
+                        ->SetEnabled(
+                            enabled);
+
+                    if (serializedNode
+                        .contains("params")) {
+
+                        nodeInfo.node_ptr
+                            ->SetState(
+                                serializedNode[
+                                    "params"]
+                                .dump());
+                    }
+
+                    LOG_DEBUG(
+                        "Loaded node: {}, id={}",
+                        name,
+                        id);
                 }
             }
 
-            if (state.contains("connections")) {
-                for (const auto& conn : state["connections"]) {
-                    auto to_id = conn["to_id"].get<uint64_t>();
-                    auto to_idx = conn["to_idx"].get<uint32_t>();
-                    auto from_id = conn["from_id"].get<uint64_t>();
-                    auto from_idx = conn["from_idx"].get<uint32_t>();
-                    ConnectNodes(from_id, from_idx, to_id, to_idx);
+
+            if (state.contains(
+                "connections")) {
+
+                const auto& connectionStates =
+                    state.at(
+                        "connections");
+
+                if (!connectionStates.is_array()) {
+                    throw std::invalid_argument(
+                        "'connections' must be an array");
+                }
+
+                for (const auto& connection
+                    : connectionStates) {
+
+                    const uint64_t fromId =
+                        connection
+                        .at("from_id")
+                        .get<uint64_t>();
+
+                    const uint32_t fromIndex =
+                        connection
+                        .at("from_idx")
+                        .get<uint32_t>();
+
+                    const uint64_t toId =
+                        connection
+                        .at("to_id")
+                        .get<uint64_t>();
+
+                    const uint32_t toIndex =
+                        connection
+                        .at("to_idx")
+                        .get<uint32_t>();
+
+                    if (!ConnectNodes(
+                        fromId,
+                        fromIndex,
+                        toId,
+                        toIndex)) {
+
+                        success = false;
+                    }
                 }
             }
         }
         catch (const std::exception& e) {
-            std::cerr << e.what();
+            LOG_ERROR(
+                "Failed to load FlowCV state: {}",
+                e.what());
+
             return false;
         }
 
-        return res;
+        return success;
     }
 
     void FlowCV_Manager::NewState()
     {
-        circuit_->RemoveAllComponents();
+        circuit_
+            ->RemoveAllComponents();
+
         wiring_.clear();
+
         nodes_.clear();
+
+        id_counter_ = 1001;
+
+        wire_id_counter_ = 500;
     }
 
     bool FlowCV_Manager::LoadState(const char* filepath)
     {
-        try {
-            std::fstream i(filepath);
-            nlohmann::json state;
-            i >> state;
-            i.close();
+        if (filepath == nullptr || *filepath == '\0')
+            return false;
 
+        try {
+            std::ifstream input(filepath);
+
+            if (!input.is_open()) {
+                LOG_ERROR("Unable to open state file: {}", filepath);
+                return false;
+            }
+            nlohmann::json state;
+            input >> state;
             return SetState(state);
         }
         catch (const std::exception& e) {
-            std::cerr << e.what();
+            LOG_ERROR("Failed to load state file '{}': {}",
+                filepath,
+                e.what());
+            return false;
         }
-
-        return false;
     }
 
-    bool FlowCV_Manager::SaveState(const char* filepath)
+    bool FlowCV_Manager::SaveState(
+            const char* filepath)
     {
+        if (filepath == nullptr || *filepath == '\0') {
+            return false;
+        }
+
         try {
-            nlohmann::json state = GetState();
-            std::ofstream o(filepath);
-            o << std::setw(4) << state << std::endl;
-            o.close();
+            std::ofstream output(
+                filepath);
+
+            if (!output.is_open()) {
+                LOG_ERROR(
+                    "Unable to open state file for writing: {}",
+                    filepath);
+
+                return false;
+            }
+
+            const nlohmann::json state =
+                GetState();
+
+            output
+                << std::setw(4)
+                << state
+                << '\n';
+
             return true;
         }
         catch (const std::exception& e) {
-            std::cerr << e.what();
-        }
+            LOG_ERROR(
+                "Failed to save state file '{}': {}",
+                filepath,
+                e.what());
 
-        return false;
-    }
-
-    // UI操作
-    bool FlowCV_Manager::NodeHasUI(uint64_t index, GuiInterfaceType interface)
-    {
-        if (index >= 0 && index < nodes_.size()) {
-            return nodes_.at(index).node_ptr->HasGui((int)interface);
-        }
-
-        return false;
-    }
-
-    bool* FlowCV_Manager::GetShowUiPtr(uint64_t index)
-    {
-        if (index >= 0 && index < nodes_.size()) {
-            return &nodes_.at(index).showControlUI;
-        }
-
-        return nullptr;
-    }
-
-    void FlowCV_Manager::SetShowUI(uint64_t index, bool show)
-    {
-        if (index >= 0 && index < nodes_.size()) {
-            nodes_.at(index).showControlUI = show;
+            return false;
         }
     }
 
-    void FlowCV_Manager::ProcessNodeUI(uint64_t index, void* context, GuiInterfaceType interface)
+    // ------------------------------------------------------------------
+    //  Connection Functions
+    // ------------------------------------------------------------------
+    bool FlowCV_Manager::ConnectNodes(
+        uint64_t from_id, 
+        uint32_t from_out_idx, 
+        uint64_t to_id, 
+        uint32_t to_in_idx)
     {
-        if (index >= 0 && index < nodes_.size()) {
-            return nodes_.at(index).node_ptr->UpdateGui(context, (int)interface);
+        const int fromIndex = GetNodeIndexFromId(from_id);
+        const int toIndex = GetNodeIndexFromId(to_id);
+        if (fromIndex < 0 || toIndex < 0) return false;
+
+        auto& fromNode =
+            nodes_[
+                static_cast<std::size_t>(
+                    fromIndex)];
+
+        auto& toNode =
+            nodes_[
+                static_cast<std::size_t>(
+                    toIndex)];
+
+        if (from_out_idx >= static_cast<uint32_t>(fromNode.desc.output_count)) {
+            return false;
         }
+
+        if (to_in_idx >= static_cast<uint32_t>(toNode.desc.input_count)) {
+            return false;
+        }
+
+        /*
+        *   DSPatch 一个Input只能接收一个Source
+        *   - 若已有旧连接, Manager自己的wiring_也必须同步清理
+        */
+        if (toNode.input_conn_map[to_in_idx].id != 0) {
+            DisconnectNodeInput(to_id,to_in_idx);
+        }
+        const bool connected = circuit_->ConnectOutToIn(
+            fromNode.node_ptr,
+            static_cast<int>(from_out_idx),
+            toNode.node_ptr,
+            static_cast<int>(to_in_idx));
+
+        if (!connected) return false;
+
+        toNode.input_conn_map[to_in_idx].id = from_id;
+        toNode.input_conn_map[to_in_idx].index = from_out_idx;
+
+        Wire wire;
+        wire.id = wire_id_counter_;
+        wire.from.id = from_id;
+        wire.from.index = from_out_idx;
+        wire.to.id = to_id;
+        wire.to.index = to_in_idx;
+        wire_id_counter_ += 500;
+        wiring_.push_back(wire);
+        return true;
     }
 
-    bool FlowCV_Manager::ConnectNodes(uint64_t from_id, uint32_t from_out_idx, uint64_t to_id, uint32_t to_in_idx)
+    bool FlowCV_Manager::DisconnectNodes(
+        uint64_t from_id, 
+        uint32_t from_out_idx, 
+        uint64_t to_id, 
+        uint32_t to_in_idx)
     {
-        bool res = false;
+        const auto it = std::find_if(wiring_.begin(), wiring_.end(),
+            [&](const Wire& wire)
+            {
+                return
+                    wire.from.id == from_id &&
+                    wire.from.index == from_out_idx &&
+                    wire.to.id == to_id &&
+                    wire.to.index == to_in_idx;
+            });
 
-        uint64_t from_index = GetNodeIndexFromId(from_id);
-        uint64_t to_index = GetNodeIndexFromId(to_id);
+        if (it == wiring_.end()) return false;
 
-        if (from_id != 0 && to_id != 0) {
-            res = circuit_->ConnectOutToIn(nodes_.at(from_index).node_ptr, from_out_idx, nodes_.at(to_index).node_ptr, to_in_idx);
-            if (res) {
-                nodes_.at(to_index).input_conn_map.at(to_in_idx).id = from_id;
-                nodes_.at(to_index).input_conn_map.at(to_in_idx).index = from_out_idx;
-                Wire w;
-                w.from.id = from_id;
-                w.from.index = from_out_idx;
-                w.to.id = to_id;
-                w.to.index = to_in_idx;
-                w.id = wire_id_counter_;
-                wire_id_counter_ += 500;
-                wiring_.emplace_back(w);
-            }
+        const int toNodeIndex = GetNodeIndexFromId(to_id);
+        if (toNodeIndex < 0) {
+            wiring_.erase(it);
+            return false;
         }
 
-        return res;
-    }
+        auto& toNode = nodes_[static_cast<std::size_t>(toNodeIndex)];
+        circuit_->PauseAutoTick();
+        toNode.node_ptr->DisconnectInput(static_cast<int>(to_in_idx));
+        circuit_->ResumeAutoTick();
 
-    bool FlowCV_Manager::DisconnectNodes(uint64_t from_id, uint32_t from_out_idx, uint64_t to_id, uint32_t to_in_idx)
-    {
-        for (int i = 0; i < wiring_.size(); i++) {
-            if (wiring_.at(i).from.id == from_id && wiring_.at(i).from.index == from_out_idx && wiring_.at(i).to.id == to_id &&
-                wiring_.at(i).to.index == to_in_idx) {
-                wiring_.erase(wiring_.begin() + i);
-                uint64_t node_idx = GetNodeIndexFromId(to_id);
-                nodes_.at(node_idx).node_ptr->DisconnectInput((int)to_in_idx);
-                return true;
-            }
+        if (to_in_idx < toNode.input_conn_map.size()) {
+            toNode.input_conn_map[to_in_idx] = {};
         }
 
-        return false;
+        wiring_.erase(it);
+        return true;
     }
 
     bool FlowCV_Manager::DisconnectNodeInput(uint64_t node_id, uint32_t in_index)
     {
-        int node_idx = GetNodeIndexFromId(node_id);
-        NodeInfo ni;
-        if (GetNodeInfoById(node_id, ni)) {
-            if (node_id != 0 && in_index >= 0 && in_index < ni.desc.input_count) {
-                auto it = wiring_.begin();
-                while (it != wiring_.end()) {
-                    if (it->to.id == node_id && it->to.index == in_index) {
-                        it = wiring_.erase(it);
-                        circuit_->PauseAutoTick();
-                        nodes_.at(node_idx).node_ptr->DisconnectInput((int)in_index);
-                        circuit_->ResumeAutoTick();
-                        return true;
-                    }
-                    else
-                        ++it;
-                }
-            }
+        const int nodeIndex = GetNodeIndexFromId(node_id);
+        if (nodeIndex < 0) {
+            return false;
         }
 
-        return false;
+        auto& node = nodes_[static_cast<std::size_t>(nodeIndex)];
+
+        if (in_index >= node.input_conn_map.size()) {
+            return false;
+        }
+
+        const auto wireIt = std::find_if(wiring_.begin(), wiring_.end(),
+            [&](const Wire& wire)
+            {
+                return
+                    wire.to.id
+                    == node_id &&
+                    wire.to.index
+                    == in_index;
+            });
+
+        if (wireIt == wiring_.end()) {
+            node.input_conn_map[in_index] = {};
+            return false;
+        }
+
+        circuit_->PauseAutoTick();
+
+        node.node_ptr->DisconnectInput(static_cast<int>(in_index));
+
+        circuit_->ResumeAutoTick();
+
+        wiring_.erase(wireIt);
+
+        node.input_conn_map[in_index] = {};
+
+        return true;
     }
 
     bool FlowCV_Manager::RemoveNodeInstance(uint64_t node_id)
     {
-        bool res = false;
+        const int nodeIndex =
+            GetNodeIndexFromId(
+                node_id);
 
-        int node_idx = GetNodeIndexFromId(node_id);
-        if (node_id != 0 && node_idx < nodes_.size()) {
-            circuit_->DisconnectComponent(nodes_.at(node_idx).node_ptr);
-            circuit_->RemoveComponent(nodes_.at(node_idx).node_ptr);
-            // Find Wires
-            auto it = wiring_.begin();
-            while (it != wiring_.end()) {
-                if (it->to.id == node_id || it->from.id == node_id) {
-                    it = wiring_.erase(it);
-                }
-                else
-                    ++it;
-            }
-            nodes_.erase(nodes_.begin() + node_idx);
-            res = true;
+        if (nodeIndex < 0) {
+            return false;
         }
 
-        return res;
+        /*
+         * 如果被删除节点是其它节点的 source，
+         * 清空对应 target 的 input_conn_map。
+         */
+        for (const auto& wire : wiring_) {
+            if (wire.from.id == node_id) {
+                const int targetIndex = GetNodeIndexFromId(wire.to.id);
+
+                if (targetIndex >= 0) {
+                    auto& target = nodes_[static_cast<std::size_t>(targetIndex)];
+                    if (wire.to.index < target.input_conn_map.size()) {
+                        target.input_conn_map[wire.to.index] = {};
+                    }
+                }
+            }
+        }
+
+        wiring_.erase(std::remove_if(wiring_.begin(), wiring_.end(),
+            [node_id](
+                const Wire& wire)
+            {
+                return
+                    wire.from.id
+                    == node_id ||
+                    wire.to.id
+                    == node_id;
+            }), wiring_.end());
+
+        auto nodePtr = nodes_[static_cast<std::size_t>(nodeIndex)].node_ptr;
+
+        /*
+         * DSPatch::Circuit::RemoveComponent()
+         * 内部已经会 DisconnectComponent()，
+         * 不需要再重复调用一次。
+         */
+        circuit_->RemoveComponent(nodePtr);
+
+        nodes_.erase(nodes_.begin() + nodeIndex);
+
+        return true;
     }
 
+    std::vector<Wire> FlowCV_Manager::GetNodeConnectionsFromIndex(uint64_t index)
+    {
+        std::vector<Wire> connections;
+
+        if (index >= nodes_.size()) {
+            return connections;
+        }
+
+        const uint64_t nodeId = nodes_[static_cast<std::size_t>(index)].id;
+
+        for (const auto& wire : wiring_) {
+            if (wire.from.id == nodeId || wire.to.id == nodeId) {
+                connections.push_back(wire);
+            }
+        }
+
+        return connections;
+    }
+
+    std::vector<Wire> FlowCV_Manager::GetNodeConnectionsFromId(uint64_t id)
+    {
+        const int nodeIndex = GetNodeIndexFromId(id);
+
+        if (nodeIndex < 0) {
+            return {};
+        }
+
+        return GetNodeConnectionsFromIndex(static_cast<uint64_t>(nodeIndex));
+    }
+
+    // ------------------------------------------------------------------------
+    //  Wire Functions
+    // ------------------------------------------------------------------------
+    uint64_t FlowCV_Manager::GetWireCount()
+    {
+        return static_cast<uint64_t>(wiring_.size());
+    }
+
+    Wire FlowCV_Manager::GetWireInfoFromIndex(uint64_t index)
+    {
+        if (index >= wiring_.size()) {
+            return {};
+        }
+
+        return wiring_[static_cast<std::size_t>(index)];
+    }
+
+    uint64_t FlowCV_Manager::GetWireIdFromIndex(uint64_t index)
+    {
+        if (index >= wiring_.size()) {
+            return 0;
+        }
+
+        return wiring_[static_cast<std::size_t>(index)].id;
+    }
+
+    void FlowCV_Manager::RemoveWireById(uint64_t id)
+    {
+        const auto it = std::find_if(wiring_.begin(), wiring_.end(),
+            [id](const Wire& wire)
+            {
+                return wire.id == id;
+            });
+
+        if (it == wiring_.end()) {
+            return;
+        }
+
+        const Wire wire = *it;
+
+        DisconnectNodes(
+            wire.from.id,
+            wire.from.index,
+            wire.to.id,
+            wire.to.index);
+    }
+
+    void FlowCV_Manager::RemoveWireByIndex(uint64_t index)
+    {
+        if (index >= wiring_.size()) {
+            return;
+        }
+
+        const Wire wire =wiring_[static_cast<std::size_t>(index)];
+
+        DisconnectNodes(
+            wire.from.id,
+            wire.from.index,
+            wire.to.id,
+            wire.to.index);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Tick Functions
+    // ---------------------------------------------------------------------------------
     void FlowCV_Manager::Tick(DSPatch::Component::TickMode mode)
     {
         circuit_->Tick(mode);
@@ -437,77 +965,6 @@ namespace FlowCV
     void FlowCV_Manager::StopAutoTick()
     {
         circuit_->StopAutoTick();
-    }
-
-    std::vector<Wire> FlowCV_Manager::GetNodeConnectionsFromIndex(uint64_t index)
-    {
-        std::vector<Wire> connections;
-        if (index >= 0 && index < nodes_.size()) {
-            NodeInfo ni;
-            if (GetNodeInfoByIndex(index, ni)) {
-                for (const auto& wire : wiring_) {
-                    if (wire.to.id == ni.id)
-                        connections.emplace_back(wire);
-
-                    if (wire.from.id == ni.id)
-                        connections.emplace_back(wire);
-                }
-            }
-        }
-
-        return connections;
-    }
-
-    std::vector<Wire> FlowCV_Manager::GetNodeConnectionsFromId(uint64_t id)
-    {
-        int node_index = GetNodeIndexFromId(id);
-
-        return GetNodeConnectionsFromIndex(node_index);
-    }
-
-    uint64_t FlowCV_Manager::GetWireCount()
-    {
-        return (uint64_t)wiring_.size();
-    }
-
-    Wire FlowCV_Manager::GetWireInfoFromIndex(uint64_t index)
-    {
-        Wire w;
-
-        if (index >= 0 && index < wiring_.size()) {
-            w.id = wiring_.at(index).id;
-            w.to.id = wiring_.at(index).to.id;
-            w.to.index = wiring_.at(index).to.index;
-            w.from.id = wiring_.at(index).from.id;
-            w.from.index = wiring_.at(index).from.index;
-        }
-
-        return w;
-    }
-
-    uint64_t FlowCV_Manager::GetWireIdFromIndex(uint64_t index)
-    {
-        if (index >= 0 && index < wiring_.size()) {
-            return wiring_.at(index).id;
-        }
-        return 0;
-    }
-
-    void FlowCV_Manager::RemoveWireById(uint64_t id)
-    {
-        for (auto& wire : wiring_) {
-            if (wire.id == id) {
-                DisconnectNodeInput(wire.to.id, wire.to.index);
-                return;
-            }
-        }
-    }
-
-    void FlowCV_Manager::RemoveWireByIndex(uint64_t index)
-    {
-        if (index >= 0 && index < wiring_.size()) {
-            DisconnectNodeInput(wiring_.at(index).to.id, wiring_.at(index).to.index);
-        }
     }
 
 }	// end namespace FlowCV

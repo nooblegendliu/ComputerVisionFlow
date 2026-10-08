@@ -1,7 +1,11 @@
 #pragma once
 
+#include <string>
+
 #include <DSPatch.h>
 #include <flowProperties.h>
+
+#include <nlohmann/json.hpp>
 
 namespace FlowCV
 {
@@ -9,6 +13,14 @@ namespace FlowCV
 	{
 	public:
 		using DSPatch::Component::Component;
+
+		explicit Node(
+			DSPatch::Component::ProcessOrder processOrder =
+			DSPatch::Component::ProcessOrder::InOrder)
+			: DSPatch::Component(processOrder)
+		{
+			SetInstanceCount(0);
+		}
 
 		~Node() override = default;
 
@@ -48,6 +60,8 @@ namespace FlowCV
 			const auto state =
 				nlohmann::json::parse(serialized);
 
+			// 状态恢复后重新计算依赖关系
+			// 例如：属性可见性、范围等
 			properties_.FromJson(state);
 		}
 
