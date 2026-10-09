@@ -415,13 +415,16 @@ namespace FlowCV
     void FlowCV_Properties::ToJson(nlohmann::json& j) const
     {
         std::lock_guard<std::mutex> lock(mutex_lock_);
+
         for (const auto& record : props_) {
+            // 保持原版FlowCV的属性保存规则
+            if (!record.visible) continue;
 
             std::visit(
-                [&](auto value) {
+                [&](const auto& value) {
                     j[record.key] = value;
-                }, record.writeValue
-            );
+                }, 
+                record.writeValue);
         }
     }
 

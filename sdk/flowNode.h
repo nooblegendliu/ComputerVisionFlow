@@ -11,7 +11,9 @@ namespace FlowCV
 {
 	class Node : public DSPatch::Component
 	{
+
 	public:
+
 		using DSPatch::Component::Component;
 
 		explicit Node(
@@ -51,18 +53,19 @@ namespace FlowCV
 			return state.dump();
 		}
 
-		void SetState(
-			std::string&& serialized) override
+		void SetState(std::string&& serialized) override
 		{
 			if (serialized.empty())
 				return;
 
-			const auto state =
-				nlohmann::json::parse(serialized);
+			const auto state = nlohmann::json::parse(serialized);
 
 			// 状态恢复后重新计算依赖关系
 			// 例如：属性可见性、范围等
 			properties_.FromJson(state);
+
+			// 刷新依赖属性的描述、范围和可见性
+			RefreshProperties();
 		}
 
 	protected:

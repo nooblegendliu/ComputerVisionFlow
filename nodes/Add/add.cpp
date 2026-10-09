@@ -32,6 +32,7 @@ namespace DSPatch::DSPatchables
 			{ "out" },
 			{ DSPatch::IoType::Io_Type_CvMat });
 
+		// 用属性代替原理的mask_mode_成员变量
 		properties_.AddOption(
 			"mask_mode", "Mask Mode", 0,
 			{
@@ -47,69 +48,66 @@ namespace DSPatch::DSPatchables
 	void Add::Process_(SignalBus const& inputs, SignalBus& outputs)
 	{
 		/*
-			UI Editor修改的是writeValue
-
-			Process开始时Sync(), 
-			将writeValue同步到readValue
-			因此Editor和处理线程之间不直接共享裸变量
+		*	编辑参数同步到处理函数
 		*/
 		properties_.Sync();
 
-		auto* in1 = inputs.GetValue<cv::Mat>(0);
-		if (in1 == nullptr || in1->empty()) return;
+		// 获取输入
+		const auto* in1 = inputs.GetValue<cv::Mat>(0);
+		const auto* in2 = inputs.GetValue<cv::Mat>(1);
+		const auto* mask = inputs.GetValue<cv::Mat>(2);
 
-		/*
-			Disable状态下延续FlowCV的Bypass行为
-		*/
+		if (!in1 || !in2 || in1->empty() || in2->empty()) return;		// 保留原有双输入要求
+
+		// 禁用节点时输出第一路图像
 		if (!IsEnabled()) {
 			outputs.SetValue(0, *in1);
 			return;
 		}
-		
-		auto* in2 = inputs.GetValue<cv::Mat>(1);
-		if (in2 == nullptr || in2->empty()) return;
 
-		/*
-		*	Add 要求两个输入:
-		*	type/channel/size 一致
-		*/
-		if (in1->type() != in2->type() ||
-			in1->channels() != in2->channels() ||
-			in1->size() != in2->size()) return;
+		// 检查输入图像的类型和尺寸
+		if (in1->type() != in2->type() || in1->size() != in2->size()) return;
 
-		auto* mask = inputs.GetValue<cv::Mat>(2);
+		// 判断mask是否有效
 		bool hasMask = false;
-		if (mask != nullptr && !mask->empty() && mask->type() == CV_8UC1 &&
-			mask->size() == in1->size())
+
+		if (mask && !mask->empty() && mask->type() == CV_8UC1 && mask->size() == in1->size())
 		{
 			hasMask = true;
 		}
 
 		cv::Mat frame;
-		if (!hasMask) cv::add(*in1, *in2, frame);
-		else {
+		if (hasMask) {
 			const int maskMode = properties_.Get<int>("mask_mode");
 
-			switch (maskMode) {
-			case 1:
-				// Mask 外保留Input 1
-				in1->copyTo(frame);
-				break;
-			case 2:
-				// Mask 外保留Input 2
-				in2->copyTo(frame);
-				break;
-
+			switch (maskMode)
+			{
 			case 0:
 			default:
-				// Mask外填充为0
+				// Mask外使用黑色
 				frame = cv::Mat::zeros(in1->size(), in1->type());
+				break;
+
+			case 1:
+				// Mask外保留第一路输入
+				in1->copyTo(frame);
+				break;
+
+			case 2:
+				// Mask外保留第二路输入
+				in2->copyTo(frame);
 				break;
 			}
 			cv::add(*in1, *in2, frame, *mask);
-			if (!frame.empty()) {
-				outputs.SetValue(0, frame);
-			}
+		}
+		else {
+			// 不使用mask
+			cv::add(*in1, *in2, frame);
+		}
+
+		// 两条路径统一输出
+		if (!frame.empty()) {
+			outputs.SetValue(0, frame);
 		}
 	}	// Add::Process_
 

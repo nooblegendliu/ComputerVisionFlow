@@ -1,6 +1,7 @@
 #include "plugin_manager.h"
 #include <filesystem>
 #include <algorithm>
+#include <memory>
 
 #include <logging/logger.h>
 
@@ -21,54 +22,96 @@ namespace FlowCV
 	void PluginManager::ScanDirForPlugins(const char* dir_path, bool recursive)
 	{
         namespace fs = std::filesystem;
-        const std::string ext = ".fp";
 
-        for (const auto& entry : fs::directory_iterator(dir_path)) {
-            if (entry.is_directory()) {
+        if (dir_path == nullptr || *dir_path == '\0')
+            return;
+
+        if (!fs::is_directory(dir_path))
+            return;
+
+        for (const auto& entry : fs::directory_iterator(dir_path))
+        {
+            if (entry.is_directory())
+            {
                 if (recursive)
-                    ScanDirForPlugins(entry.path().string().c_str());
-            }
-            else if (entry.is_regular_file()) {
-                std::string filename = entry.path().string();
-                int extLen = ext.size();
-                std::string ending = filename.substr(filename.size() - extLen, extLen);
-                if (ending == ext) {
-                    LOG_INFO("{}", entry.path().string());
-                    PluginInfo pi;
-                    pi.plugin_handle = new DSPatch::Plugin(filename);
-                    if (pi.plugin_handle->IsLoaded()) {
-                        std::shared_ptr<DSPatch::Component> plugin_instance = pi.plugin_handle->Create();
-                        pi.plugin_desc.name = plugin_instance->GetComponentName();
-                        pi.plugin_desc.category = plugin_instance->GetComponentCategory();
-                        pi.plugin_desc.author = plugin_instance->GetComponentAuthor();
-                        pi.plugin_desc.version = plugin_instance->GetComponentVersion();
-                        pi.plugin_desc.input_count = plugin_instance->GetInputCount();
-                        pi.plugin_desc.output_count = plugin_instance->GetOutputCount();
-                        plugins_.emplace_back(pi);
-                        plugin_instance.reset();
-                    }
+                {
+                    const auto subdir = entry.path().string();
+                    ScanDirForPlugins(subdir.c_str(), recursive);
                 }
+                continue;
             }
+
+            if (!entry.is_regular_file())
+                continue;
+
+            // 保留FlowCV的 .fp 扩展名
+            if (entry.path().extension() != ".fp") continue;
+
+            const std::string filename = entry.path().string();
+
+            LOG_INFO("Loading plugin: {}", filename);
+
+            // 初始化期间使用RAII管理句柄
+            auto plugin = std::make_unique<DSPatch::Plugin>(filename);
+
+            if (!plugin->IsLoaded()) continue;
+
+            // 临时实例用于读取节点信息
+            auto instance = plugin->Create();
+
+            if (!instance) {
+                LOG_WARN("Failed to create plugin: {}", filename);
+                continue;
+            }
+
+            PluginInfo info{};
+
+            info.plugin_handle = plugin.get();
+            info.plugin_desc.name = instance->GetComponentName();
+            info.plugin_desc.category = instance->GetComponentCategory();
+            info.plugin_desc.author = instance->GetComponentAuthor();
+            info.plugin_desc.version = instance->GetComponentVersion();
+            info.plugin_desc.input_count = instance->GetInputCount();
+            info.plugin_desc.output_count = instance->GetOutputCount();
+            
+            // 任然使用原版插件容器
+            plugins_.push_back(info);
+
+            // 确保临时组件先于动态库释放
+            instance.reset();
+
+            // 所有权转移至plugins_
+            plugin.release();
         }
 
-        // Sort Nodes
+        // 保留FlowCV排序行为
         std::sort(plugins_.begin(), plugins_.end(), compareName);
 	}
 
     void PluginManager::LoadPlugins(const char* plugin_path, bool recursive)
     {
+        if (plugin_path == nullptr || *plugin_path == '0')
+            return;
+
         plugin_path_ = plugin_path;
+
         LOG_INFO("Looking for Plugins in: {}", plugin_path);
-        ScanDirForPlugins(plugin_path_.c_str());
+
+        ScanDirForPlugins(plugin_path_.c_str(), recursive);
     }
 
     void PluginManager::UnLoadPlugins()
     {
-        if (!plugins_.empty()) {
-            for (auto& p : plugins_) {
-                delete p.plugin_handle;
-            }
+        for (auto& plugin : plugins_)
+        {
+            delete plugin.plugin_handle;
+
+            plugin.plugin_handle = nullptr;
         }
+
+        plugins_.clear();
+
+        plugin_path_.clear();
     }
 
     uint32_t PluginManager::PluginCount()
