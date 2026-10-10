@@ -90,7 +90,7 @@ namespace FlowCV
 
     void PluginManager::LoadPlugins(const char* plugin_path, bool recursive)
     {
-        if (plugin_path == nullptr || *plugin_path == '0')
+        if (plugin_path == nullptr || *plugin_path == '\0')
             return;
 
         plugin_path_ = plugin_path;

@@ -15,9 +15,10 @@ endif()
 
 add_library(VisionFlowNodes STATIC
     "Add/add.cpp"
-    "internal_nodes.h"
     "Add/add.hpp"
-    #"Solid/Solid.hpp"
+    "internal_nodes.h"
+    "Solid/Solid.cpp"
+    "Solid/Solid.hpp"
 )
 add_library(VisionFlow::Nodes ALIAS VisionFlowNodes)
 
