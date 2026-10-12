@@ -1,4 +1,4 @@
-1\#include "node_manager.h"
+#include "node_manager.h"
 
 #include <algorithm>
 #include <internal_nodes.h>
@@ -11,6 +11,8 @@ namespace FlowCV
 		*  所有已完成的新接口的InternalNodes在此注册
 		*/
 		RegisterNode<DSPatch::DSPatchables::Add>();
+		RegisterNode<DSPatch::DSPatchables::Solid>();
+		RegisterNode<DSPatch::DSPatchables::Viewer>();
 		//...
 
 		std::sort(node_list_.begin(), node_list_.end(),
