@@ -1,16 +1,31 @@
 add_library(VisionFlowEditor STATIC
     VisionFlowEditor.h
     VisionFlowEditor.cpp
-)
 
-add_library(VisionFlow::Editor ALIAS VisionFlowEditor)
+    Graph/VisionFlowGraphModel.hpp 
+    Graph/VisionFlowGraphModel.cpp)
+
+add_library(
+    VisionFlow::Editor 
+    ALIAS VisionFlowEditor)
+
+# VisionFlowGraphModel继承自QObject
+# 使用 Q_Object必须启用moc
+set_target_properties(VisionFlowEditor PROPERTIES 
+    AUTOMOC ON
+)
 
 target_include_directories(VisionFlowEditor
-    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
+    PUBLIC 
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Graph"
 )
 
-target_link_libraries(VisionFlowEditor PRIVATE
-    VisionFlow::Sdk
-    VisionFlow::Managers
-    QtNodes::QtNodes
+target_link_libraries(VisionFlowEditor 
+    PUBLIC 
+        VisionFlow::Managers
+        QtNodes::QtNodes
+    PRIVATE
+        VisionFlow::Sdk
+        Qt6::Core
 )
