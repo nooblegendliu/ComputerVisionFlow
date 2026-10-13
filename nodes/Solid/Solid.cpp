@@ -59,7 +59,7 @@ namespace DSPatch::DSPatchables
 		// 使用Float代替ImVec4, 默认0 0 0 1
 		properties_.AddFloat("color_r", "Red", 0.0f, 0.0f, 1.0f, 0.01f);
 		properties_.AddFloat("color_g", "Green", 0.0f, 0.0f, 1.0f, 0.01f);
-		properties_.AddFloat("color_b", "Blur", 0.0f, 0.0f, 1.0f, 0.01f);
+		properties_.AddFloat("color_b", "Blue", 0.0f, 0.0f, 1.0f, 0.01f);
 		properties_.AddFloat("color_a", "Alpha", 1.0f, 0.0f, 1.0f, 0.01f);
 
 		// 原版灰度值 grey_value_ = 0
