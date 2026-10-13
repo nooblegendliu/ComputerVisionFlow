@@ -10,16 +10,14 @@
 | QtNodes | <https://github.com/paceholder/nodeeditor> | 3.0.16，`7c6341a66a8e46b8988140b9e60d892b6a3560b3` | BSD-3-Clause | `QtNodes::QtNodes` |
 | Qt | 本机 Qt SDK | 6.11.1，MSVC 2022 x64 套件 | 以所安装 Qt SDK 的许可证为准 | `Qt6::Core/Gui/Widgets/OpenGL` |
 
-spdlog、nlohmann_json 与 Qt 的实际版本由本机安装状态决定，QtNodes 的源码版本已固定，DSPatch 为本地整理版本，保留文件命名与注释调整，并非逐字一致的原始快照。共享预设通过 `VCPKG_ROOT` 找到工具链，不写入本机绝对路径。x86 构建需要对应架构的依赖；当前 Qt SDK 只支持 x64，此次不验证 x86 Studio。
+spdlog、nlohmann_json 与 Qt 的实际版本由本机安装状态决定，QtNodes 的源码版本已固定，DSPatch 为本地整理版本，保留文件命名与注释调整，并非逐字一致的原始快照。共享隐藏预设通过 `VCPKG_ROOT` 找到工具链，不写入本机绝对路径。当前个人预设仅构建 x64 Release，与已有 Qt SDK 和 Release OpenCV 匹配。
 
 `CMakeLists.txt` 使用 `find_package(spdlog CONFIG REQUIRED GLOBAL)`，使导入目标可被同级模块消费。Utils 的 Logging 功能以 `PUBLIC` 方式链接该目标，将公开头文件需要的编译与链接要求传播给消费者。spdlog 的包配置负责查找和传递 fmt，不手工添加 fmt 路径或库名。保留 vcpkg 默认的运行时依赖复制行为。
 
-JSON 通过无条件的 `find_package(nlohmann_json CONFIG REQUIRED GLOBAL)` 查找，Studio OFF 同样需要它。Sdk 以 `PUBLIC` 链接 `nlohmann_json::nlohmann_json`，因为公开头文件 `flowProperties.h` 包含 `<nlohmann/json.hpp>`；下游无需手工添加包含路径。JSON 是头文件库，不新增二进制库构建，不使用 FetchContent 或另一份源码副本。本机 x64 已有 3.12.0；其他机器或 x86 环境需先安装对应依赖：
+JSON 通过无条件的 `find_package(nlohmann_json CONFIG REQUIRED GLOBAL)` 查找，Studio OFF 同样需要它。Sdk 以 `PUBLIC` 链接 `nlohmann_json::nlohmann_json`，因为公开头文件 `flowProperties.h` 包含 `<nlohmann/json.hpp>`；下游无需手工添加包含路径。JSON 是头文件库，不新增二进制库构建，不使用 FetchContent 或另一份源码副本。本机 x64 已有 3.12.0；其他机器需先安装对应依赖：
 
 ```powershell
 & "$env:VCPKG_ROOT/vcpkg.exe" install nlohmann-json:x64-windows
-# 仅在需要 x86 构建时安装：
-& "$env:VCPKG_ROOT/vcpkg.exe" install nlohmann-json:x86-windows
 ```
 
 ## 源码快照与构建边界
@@ -34,20 +32,19 @@ QtNodes 仅在 `VISIONFLOW_BUILD_STUDIO=ON` 时作为子目录构建。局部变
 
 ## 本机配置与使用
 
-在 Visual Studio x64 开发者 PowerShell 中使用个人预设。当前被忽略的 `CMakeUserPresets.json` 提供 `local-x64-debug`、`local-x64-release`，分别继承共享的对应预设，指定本机 Qt 根目录和 vcpkg 环境变量；生成文件进入各自全新的 `out/build/local-x64-*` 目录。
+在 Visual Studio x64 开发者 PowerShell 中使用个人预设。当前被忽略的 `CMakeUserPresets.json` 仅提供 `local-x64-release` 配置预设和同名构建预设，直接继承共享的隐藏预设 `windows-base`，指定本机 Qt、OpenCV 根目录和 vcpkg 环境变量；生成文件继续进入 `out/build/local-x64-release`。隐藏预设只提供 x64 Release 公共参数，不是另一个可选构建版本。
 
 ```powershell
-cmake --preset local-x64-debug
-cmake --build --preset local-x64-debug
+cmake --list-presets=all
 cmake --preset local-x64-release
 cmake --build --preset local-x64-release
 ```
 
-其他机器需自行建立个人预设：`Qt6_ROOT` 指向包含 `bin`、`include`、`lib` 的 Qt MSVC 套件根目录，`VCPKG_ROOT` 指向已安装 spdlog 和 nlohmann-json 的 vcpkg。不要在共享 CMake 中设置绝对路径或全局包含/链接目录。
+其他机器需自行建立继承 `windows-base` 的个人预设：`Qt6_ROOT` 指向包含 `bin`、`include`、`lib` 的 Qt MSVC 套件根目录，`OpenCV_DIR` 指向 Release OpenCV 的 CMake 包目录，`VCPKG_ROOT` 指向已安装 spdlog 和 nlohmann-json 的 vcpkg。不要在共享 CMake 中设置绝对路径或全局包含/链接目录。
 
-当前正式程序仍为控制台占位入口，不创建 Qt 窗口。后续实际使用 Qt 界面时再配置 Qt DLL、插件部署；本次不增加应用打包逻辑。
+当前正式程序为无 UI 的 Solid、Add、Viewer 闭环入口，不创建 Qt 窗口。应用构建后会复制所链接的运行时 DLL；本次不增加安装打包逻辑。下方历史验证中的 Debug 预设和旧模块名保留为当时记录，不代表当前可用入口。
 
-## 当前变更（2026-09-20，Managers 迁移与 JSON 接入）
+## 历史变更（2026-09-20，Managers 迁移与 JSON 接入）
 
 - Managers 替代 Engine 构建目标，三个管理器的六个文件仅为空占位，不包含业务实现。
 - SDK PUBLIC 链接 nlohmann_json，头文件使用标准包含路径；配置阶段复用本机 vcpkg 包。
