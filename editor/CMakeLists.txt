@@ -3,7 +3,10 @@ add_library(VisionFlowEditor STATIC
     VisionFlowEditor.cpp
 
     Graph/VisionFlowGraphModel.hpp 
-    Graph/VisionFlowGraphModel.cpp)
+    Graph/VisionFlowGraphModel.cpp 
+    
+    PropertyPanel.h
+    PropertyPanel.cpp)
 
 add_library(
     VisionFlow::Editor 
