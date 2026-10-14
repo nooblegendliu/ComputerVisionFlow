@@ -25,8 +25,9 @@ target_link_libraries(VisionFlowEditor
     PUBLIC 
         VisionFlow::Managers
         QtNodes::QtNodes
+        Qt6::Widgets
+
     PRIVATE
         VisionFlow::Sdk
         Qt6::Core
-        Qt6:Widghts
 )
