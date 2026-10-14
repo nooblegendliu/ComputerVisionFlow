@@ -20,8 +20,10 @@
 
 #include <QtNodes/BasicGraphicsScene>
 #include <QtNodes/GraphicsView>
+#include <QtNodes/StyleCollection>
 #include <QtNodes/internal/ConnectionGraphicsObject.hpp>
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
+
 
 namespace {
 
@@ -150,6 +152,42 @@ VisionFlowEditor::VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
         this, [this](QtNodes::ConnectionId) { notifyGraphChanged(); });
     QObject::connect(model_, &QtNodes::AbstractGraphModel::modelReset,
         this, [this]() { notifyGraphChanged(); });
+
+
+    // QtNodes 当前版本在 NodeGraphicsObject 构造时
+    // 使用 toJsonObject() 读取 QVariantMap，导致透明度错误。
+    // 在图形节点创建完成后恢复原有 NodeStyle 的透明度。
+    auto restoreNodeOpacity = [this](QtNodes::NodeId nodeId) {
+        auto* node = scene_->nodeGraphicsObject(nodeId);
+
+        if (node) {
+            node->setOpacity(
+                QtNodes::StyleCollection::nodeStyle().Opacity);
+        }
+        };
+
+    // 新建节点
+    QObject::connect(
+        model_,
+        &QtNodes::AbstractGraphModel::nodeCreated,
+        this,
+        restoreNodeOpacity);
+
+    // 整体重建画布
+    QObject::connect(
+        model_,
+        &QtNodes::AbstractGraphModel::modelReset,
+        this,
+        [this, restoreNodeOpacity]() {
+            for (auto nodeId : model_->allNodeIds()) {
+                restoreNodeOpacity(nodeId);
+            }
+        });
+
+    // 处理构造 Editor 前已经存在的节点
+    for (auto nodeId : model_->allNodeIds()) {
+        restoreNodeOpacity(nodeId);
+    }
 }
 
 VisionFlowEditor::~VisionFlowEditor()

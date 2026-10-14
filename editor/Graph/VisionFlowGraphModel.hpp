@@ -5,7 +5,9 @@
 #include <unordered_set>
 
 #include <QtCore/QPointF>
+#include <QtCore/QSize>
 #include <QtCore/QVariant>
+
 #include <QtNodes/AbstractGraphModel>
 
 #include <flowcv_manager.h>
@@ -123,5 +125,8 @@ private:
 
 	std::unordered_map<std::uint64_t, QtNodes::NodeId> flowToQt_;
 
+	// QtNodes画布专用状态
 	std::unordered_map<QtNodes::NodeId, QPointF> positions_;
+	// 新增：保存QtNodes自动计算的节点尺寸
+	std::unordered_map<QtNodes::NodeId, QSize> sizes_;
 };

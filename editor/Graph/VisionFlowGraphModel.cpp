@@ -117,21 +117,19 @@ QtNodes::NodeId VisionFlowGraphModel::newNodeId()
 // -----------------------------------------------------------------------
 // Rebuild / Synchronization
 // -----------------------------------------------------------------------
+
 bool VisionFlowGraphModel::rebuildFromManager()
 {
     std::unordered_map<QtNodes::NodeId, std::uint64_t> newQtToFlow;
-
     std::unordered_map<std::uint64_t, QtNodes::NodeId> newFlowToQt;
-
-    std::unordered_map< QtNodes::NodeId, QPointF > newPositions;
+    std::unordered_map< QtNodes::NodeId, QPointF> newPositions;
 
     const std::uint64_t count = manager_.GetNodeCount();
 
     for (std::uint64_t i = 0; i < count; ++i) {
         FlowCV::NodeInfo info{};
 
-        if (!manager_.GetNodeInfoByIndex(i, info) ||
-            info.id == 0 || !info.node_ptr) {
+        if (!manager_.GetNodeInfoByIndex(i, info) || info.id == 0 || !info.node_ptr) {
             return false;
         }
 
@@ -166,10 +164,14 @@ bool VisionFlowGraphModel::rebuildFromManager()
     flowToQt_.swap(newFlowToQt);
     positions_.swap(newPositions);
 
+    // 重建 Scene 时，QtNodes 会重新计算节点尺寸。
+    sizes_.clear();
+
     Q_EMIT modelReset();
 
     return true;
 }
+
 
 // --------------------------------------------------------------------
 // Helpers
@@ -460,6 +462,7 @@ void VisionFlowGraphModel::addConnection(
 // ---------------------------------------------------------------
 // Node Data
 // ----------------------------------------------------------------
+
 QVariant VisionFlowGraphModel::nodeData(
     QtNodes::NodeId nodeId,
     QtNodes::NodeRole role) const
@@ -471,21 +474,24 @@ QVariant VisionFlowGraphModel::nodeData(
     }
 
     switch (role) {
-
     case QtNodes::NodeRole::Type:
-        return QString::fromStdString(
-            info.desc.name);
+        return QString::fromStdString(info.desc.name);
 
     case QtNodes::NodeRole::Position: {
-        auto pos = positions_.find(nodeId);
+        auto it = positions_.find(nodeId);
 
-        return pos != positions_.end()
-            ? QVariant::fromValue(pos->second)
+        return it != positions_.end()
+            ? QVariant::fromValue(it->second)
             : QVariant::fromValue(QPointF());
     }
 
-    case QtNodes::NodeRole::Size:
-        return QSize();
+    case QtNodes::NodeRole::Size: {
+        auto it = sizes_.find(nodeId);
+
+        return it != sizes_.end()
+            ? QVariant::fromValue(it->second)
+            : QVariant::fromValue(QSize());
+    }
 
     case QtNodes::NodeRole::CaptionVisible:
         return true;
@@ -496,6 +502,8 @@ QVariant VisionFlowGraphModel::nodeData(
             .arg(info.node_ptr->GetInstanceCount());
 
     case QtNodes::NodeRole::Style:
+        // 保留 QVariantMap 形式：
+        // DefaultNodePainter 使用 fromVariant() 读取。
         return QtNodes::StyleCollection::nodeStyle()
             .toJson()
             .toVariantMap();
@@ -518,31 +526,62 @@ QVariant VisionFlowGraphModel::nodeData(
     return {};
 }
 
+
+
 bool VisionFlowGraphModel::setNodeData(
     QtNodes::NodeId nodeId,
     QtNodes::NodeRole role,
     QVariant value)
 {
-    if (!nodeExists(nodeId) ||
-        role != QtNodes::NodeRole::Position ||
-        !value.canConvert<QPointF>()) {
-
+    if (!nodeExists(nodeId)) {
         return false;
     }
 
-    const QPointF newPosition =
-        value.value<QPointF>();
+    switch (role) {
+    case QtNodes::NodeRole::Position: {
+        if (!value.canConvert<QPointF>()) {
+            return false;
+        }
 
-    auto& oldPosition = positions_[nodeId];
+        const QPointF newPosition =
+            value.value<QPointF>();
 
-    if (oldPosition != newPosition) {
-        oldPosition = newPosition;
+        auto& oldPosition = positions_[nodeId];
 
-        Q_EMIT nodePositionUpdated(nodeId);
+        if (oldPosition != newPosition) {
+            oldPosition = newPosition;
+            Q_EMIT nodePositionUpdated(nodeId);
+        }
+
+        return true;
     }
 
-    return true;
+    case QtNodes::NodeRole::Size: {
+        if (!value.canConvert<QSize>()) {
+            return false;
+        }
+
+        const QSize newSize = value.value<QSize>();
+
+        if (!newSize.isValid() || newSize.isEmpty()) {
+            return false;
+        }
+
+        // QtNodes::DefaultHorizontalNodeGeometry
+        // 调用此接口记录计算出的节点宽高。
+        //
+        // 不发 nodeUpdated()，避免重复触发
+        // Geometry::recomputeSize()。
+        sizes_[nodeId] = newSize;
+
+        return true;
+    }
+
+    default:
+        return false;
+    }
 }
+
 
 // ================================================================
 // Port Data
@@ -668,9 +707,7 @@ bool VisionFlowGraphModel::deleteConnection(
 // ================================================================
 // Node Deletion
 // ================================================================
-
-bool VisionFlowGraphModel::deleteNode(
-    QtNodes::NodeId nodeId)
+bool VisionFlowGraphModel::deleteNode(QtNodes::NodeId nodeId)
 {
     const auto flowId = flowNodeId(nodeId);
 
@@ -684,24 +721,25 @@ bool VisionFlowGraphModel::deleteNode(
         return false;
     }
 
-    // 在底层移除之前记录与节点关联的连接。
-    // 用于后续通知 QtNodes 删除连接图形。
+    // 删除前记录关联连线。
     auto attached = allConnectionIds(nodeId);
 
-    // 实际节点及连接删除交给 Manager。
+    // 实际删除仍由原有 Manager 完成。
     if (!manager_.RemoveNodeInstance(flowId)) {
         return false;
     }
 
-    // 先移除关联的图形连接。
+    // 先通知 QtNodes 移除连线图形。
     for (auto const& connection : attached) {
         Q_EMIT connectionDeleted(connection);
     }
 
-    // 再清理图模型里的 UI 辅助数据。
     qtToFlow_.erase(nodeId);
     flowToQt_.erase(flowId);
     positions_.erase(nodeId);
+
+    // 新增：同步清除画布尺寸缓存。
+    sizes_.erase(nodeId);
 
     Q_EMIT nodeDeleted(nodeId);
 
