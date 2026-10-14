@@ -96,6 +96,12 @@ public:
 	bool deleteNode(
 		QtNodes::NodeId nodeId) override;
 
+	// 10.14 new add
+	bool detachPossible(QtNodes::ConnectionId const) const override
+	{
+		return false;
+	}
+
 private:
 	bool getNodeInfo(
 		QtNodes::NodeId nodeId,

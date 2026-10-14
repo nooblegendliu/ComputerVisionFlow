@@ -54,15 +54,28 @@ namespace {
     void disableUnsupportedGraphActions(QtNodes::GraphicsView* view)
     {
         for (QAction* action : view->actions()) {
+            // 保留删除选择和清空选择
             if (action == view->deleteSelectionAction() ||
                 action == view->clearSelectionAction()) {
                 continue;
             }
 
+#ifndef impl
+            // 移除View快捷键注册
+            view->removeAction(action);
+
+            // 移除原有快捷键
+            action->setShortcuts(QList<QKeySequence>{});
+
+            // 禁用动作
+            action->setEnabled(false);
+#else
+            
             // QtNodes 当前实现中，此时 view 的其余 actions 为
             // Duplicate、Copy、Paste、Undo、Redo。
             action->setEnabled(false);
             action->setShortcuts(QList<QKeySequence>{});
+#endif
         }
     }
 
