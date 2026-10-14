@@ -28,4 +28,5 @@ target_link_libraries(VisionFlowEditor
     PRIVATE
         VisionFlow::Sdk
         Qt6::Core
+        Qt6:Widghts
 )

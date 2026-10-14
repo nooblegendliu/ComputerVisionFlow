@@ -4,7 +4,8 @@
 
 add_executable(VisionFlowStudio 
     main.cpp
-)
+    "MainWindow.h" 
+    "MainWindow.cpp")
 
 target_include_directories(VisionFlowStudio 
     PRIVATE
@@ -16,7 +17,8 @@ target_link_libraries(VisionFlowStudio
         VisionFlow::Editor 
         VisionFlow::Managers 
         VisionFlow::Utils 
-        VisionFlow::Nodes)
+        VisionFlow::Nodes
+        Qt6::Widgets)
 
 
 # ----------------------------------------------------------------------

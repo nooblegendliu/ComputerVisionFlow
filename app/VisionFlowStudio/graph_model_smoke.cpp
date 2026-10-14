@@ -2,7 +2,7 @@
 #include <stdexcept>
 
 #include <flowcv_manager.h>
-#include <VisionFlowGraphModel.h>
+#include <VisionFlowGraphModel.hpp>
 
 int main()
 {
