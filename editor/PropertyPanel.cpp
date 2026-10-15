@@ -36,6 +36,9 @@ PropertyPanel::PropertyPanel(
 
     scrollArea_ = new QScrollArea(this);
 
+    scrollArea_->setObjectName(
+        QStringLiteral("PropertyScrollArea"));
+
     scrollArea_->setWidgetResizable(true);
 
     scrollArea_->setFrameShape(
@@ -195,6 +198,9 @@ void PropertyPanel::refresh()
     // 构建新的滚动内容。
     // ---------------------------------------------------------
     auto* content = new QWidget;
+
+    content->setObjectName(
+        QStringLiteral("PropertyContent"));
 
     auto* contentLayout = new QVBoxLayout(content);
 

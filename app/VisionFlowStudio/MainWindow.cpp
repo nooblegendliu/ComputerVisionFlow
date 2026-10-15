@@ -69,7 +69,7 @@ MainWindow::MainWindow(
             refreshGraphStatistics();
 
             // 保留多节点属性面板的刷新方式。
-            propertyPanel_->refresh();
+            propertyPanel_->refresh(); 
         });
 
 
@@ -319,6 +319,12 @@ void MainWindow::setupAppearance()
         QScrollArea {
             background-color: #252c35;
             border: none;
+        }
+
+        QScrollArea#PropertyScrollArea > QWidget,
+        QWidget#PropertyContent {
+            background-color: #252c35;
+            color: #dfe5ed;
         }
 
         QSpinBox, QDoubleSpinBox, QComboBox {

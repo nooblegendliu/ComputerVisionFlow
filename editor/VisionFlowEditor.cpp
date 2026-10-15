@@ -93,7 +93,7 @@ VisionFlowEditor::VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
     QWidget* parent)
     : QWidget(parent), manager_(manager)
 {
-    // 生命周期顺序：model -> scene -> view；Qt 父对象销毁时反序析构。
+    // 依赖顺序：model -> scene -> view；析构函数显式按相反顺序释放。
     model_ = new VisionFlowGraphModel(manager_, this);
 
     scene_ = new VisionFlowGraphicsScene(
@@ -192,6 +192,11 @@ VisionFlowEditor::VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
 
 VisionFlowEditor::~VisionFlowEditor()
 {
+    // 销毁图形节点会触发 selectionChanged；此时外部窗口可能已在析构。
+    // 先断开内部对象到 Editor 的回调，停止选择通知和界面刷新。
+    QObject::disconnect(scene_, nullptr, this, nullptr);
+    QObject::disconnect(model_, nullptr, this, nullptr);
+
     // 显式按 View -> Scene -> Model 顺序释放，避免 QObject 的普通
     // 子对象销毁顺序使 Scene 尚在使用时 Model 就被析构。
     delete view_;
