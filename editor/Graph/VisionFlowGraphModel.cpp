@@ -118,31 +118,38 @@ QtNodes::NodeId VisionFlowGraphModel::newNodeId()
 // Rebuild / Synchronization
 // -----------------------------------------------------------------------
 
-bool VisionFlowGraphModel::rebuildFromManager()
+bool VisionFlowGraphModel::rebuildFromManager(bool resetPositions)
 {
     std::unordered_map<QtNodes::NodeId, std::uint64_t> newQtToFlow;
     std::unordered_map<std::uint64_t, QtNodes::NodeId> newFlowToQt;
-    std::unordered_map< QtNodes::NodeId, QPointF> newPositions;
+    std::unordered_map<QtNodes::NodeId, QPointF> newPositions;
 
     const std::uint64_t count = manager_.GetNodeCount();
 
-    for (std::uint64_t i = 0; i < count; ++i) {
+    for (std::uint64_t i = 0; i < count; ++i)
+    {
         FlowCV::NodeInfo info{};
 
-        if (!manager_.GetNodeInfoByIndex(i, info) || info.id == 0 || !info.node_ptr) {
+        if (!manager_.GetNodeInfoByIndex(i, info) ||
+            info.id == 0 ||
+            !info.node_ptr)
+        {
             return false;
         }
 
-        if (newFlowToQt.find(info.id) != newFlowToQt.end()) {
+        if (newFlowToQt.find(info.id) != newFlowToQt.end())
+        {
             return false;
         }
 
         QtNodes::NodeId viewId = qtNodeId(info.id);
 
-        if (viewId == QtNodes::InvalidNodeId) {
+        if (viewId == QtNodes::InvalidNodeId)
+        {
             viewId = newNodeId();
 
-            if (viewId == QtNodes::InvalidNodeId) {
+            if (viewId == QtNodes::InvalidNodeId)
+            {
                 return false;
             }
         }
@@ -150,21 +157,28 @@ bool VisionFlowGraphModel::rebuildFromManager()
         newQtToFlow.emplace(viewId, info.id);
         newFlowToQt.emplace(info.id, viewId);
 
-        auto posIt = positions_.find(viewId);
+        QPointF position = defaultPosition(i);
 
-        newPositions.emplace(
-            viewId,
-            posIt != positions_.end()
-            ? posIt->second
-            : defaultPosition(i)
-        );
+        // 只有普通同步时才复用旧的位置。
+        // 加载新项目时应从项目文件重新读取。
+        if (!resetPositions)
+        {
+            auto posIt = positions_.find(viewId);
+
+            if (posIt != positions_.end())
+            {
+                position = posIt->second;
+            }
+        }
+
+        newPositions.emplace(viewId, position);
     }
 
     qtToFlow_.swap(newQtToFlow);
     flowToQt_.swap(newFlowToQt);
     positions_.swap(newPositions);
 
-    // 重建 Scene 时，QtNodes 会重新计算节点尺寸。
+    // QtNodes 重建时需要重新计算图形尺寸。
     sizes_.clear();
 
     Q_EMIT modelReset();

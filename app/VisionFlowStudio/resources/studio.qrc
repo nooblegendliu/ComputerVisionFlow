@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/visionflowstudio">
+        <file>icons/spin-up.svg</file>
+        <file>icons/spin-down.svg</file>
+        <file>icons/spin-up-disabled.svg</file>
+        <file>icons/spin-down-disabled.svg</file>
+    </qresource>
+</RCC>

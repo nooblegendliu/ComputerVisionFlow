@@ -30,7 +30,8 @@ public:
 	QtNodes::NodeId qtNodeId(std::uint64_t flowId) const noexcept;
 
 	// 用于SetState/NewState或外部修改运行图之后，重新读取Manager数据，并通知QtNodes整体刷新
-	bool rebuildFromManager();
+	// 参数为true时不复用原画布的位置
+	bool rebuildFromManager(bool resetPositions = false);
 
 	// ------------------------------------------------
 	// Node ID/ Query

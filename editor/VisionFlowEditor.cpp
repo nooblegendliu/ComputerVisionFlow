@@ -8,6 +8,9 @@
 #include <functional>
 #include <utility>
 #include <vector>
+#include <cmath>
+#include <stdexcept>
+#include <vector>
 
 #include <QtCore/QTimer>
 #include <QtGui/QAction>
@@ -190,6 +193,7 @@ VisionFlowEditor::VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
     }
 }
 
+
 VisionFlowEditor::~VisionFlowEditor()
 {
     // 销毁图形节点会触发 selectionChanged；此时外部窗口可能已在析构。
@@ -204,10 +208,180 @@ VisionFlowEditor::~VisionFlowEditor()
     delete model_;
 }
 
+
 QAction* VisionFlowEditor::deleteSelectionAction() const
 {
     return view_->deleteSelectionAction();
 }
+
+
+// Stage E: Export Editor State
+// 导出节点位置
+nlohmann::json VisionFlowEditor::getEditorState() const
+{
+    using nlohmann::json;
+
+    json editorState = json::array();
+
+    const std::uint64_t count = manager_.GetNodeCount();
+
+    for (std::uint64_t i = 0; i < count; ++i)
+    {
+        const std::uint64_t flowId =
+            manager_.GetNodeIdFromIndex(i);
+
+        // FlowCV ID 转换为 QtNodes ID。
+        const QtNodes::NodeId qtId =
+            model_->qtNodeId(flowId);
+
+        if (qtId == QtNodes::InvalidNodeId ||
+            !model_->nodeExists(qtId))
+        {
+            throw std::runtime_error(
+                "Editor node mapping is inconsistent");
+        }
+
+        const QVariant positionData =
+            model_->nodeData(
+                qtId,
+                QtNodes::NodeRole::Position);
+
+        if (!positionData.canConvert<QPointF>())
+        {
+            throw std::runtime_error(
+                "Unable to read editor node position");
+        }
+
+        const QPointF position =
+            positionData.toPointF();
+
+        // 使用真实 FlowCV ID 保存。
+        // 格式与原版 FlowCV 的 editor 字段一致。
+        json nodeState = {
+            {"id", flowId},
+            {"location", {
+                {"x", position.x()},
+                {"y", position.y()}
+            }}
+        };
+
+        editorState.push_back(
+            std::move(nodeState));
+    }
+
+    return editorState;
+}
+
+
+// 恢复节点位置
+bool VisionFlowEditor::restoreFromManager(
+    const nlohmann::json& state)
+{
+    using nlohmann::json;
+
+    struct SavedPosition
+    {
+        std::uint64_t flowId;
+        QPointF position;
+    };
+
+    std::vector<SavedPosition> savedPositions;
+
+    // ---------------------------------------------------------
+    // 1. 读取项目中的 editor 字段。
+    //    兼容没有该字段的旧文件。
+    // ---------------------------------------------------------
+    try
+    {
+        if (state.contains("editor") &&
+            !state["editor"].is_null())
+        {
+            if (!state["editor"].is_array())
+            {
+                return false;
+            }
+
+            for (const auto& item : state["editor"])
+            {
+                const std::uint64_t flowId =
+                    item.at("id").get<std::uint64_t>();
+
+                const auto& location =
+                    item.at("location");
+
+                const double x =
+                    location.at("x").get<double>();
+
+                const double y =
+                    location.at("y").get<double>();
+
+                if (!std::isfinite(x) ||
+                    !std::isfinite(y))
+                {
+                    return false;
+                }
+
+                savedPositions.push_back({
+                    flowId,
+                    QPointF(x, y)
+                    });
+            }
+        }
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+
+    // ---------------------------------------------------------
+    // 2. 清理当前选择。
+    // ---------------------------------------------------------
+    scene_->clearSelection();
+
+    // ---------------------------------------------------------
+    // 3. 从 Manager 重建 QtNodes 图模型。
+    //
+    // true 表示不沿用旧项目的位置。
+    // modelReset 会通知 BasicGraphicsScene 重建画布。
+    // ---------------------------------------------------------
+    if (!model_->rebuildFromManager(true))
+    {
+        return false;
+    }
+
+    // ---------------------------------------------------------
+    // 4. 恢复保存的节点位置。
+    // ---------------------------------------------------------
+    for (const SavedPosition& item : savedPositions)
+    {
+        const QtNodes::NodeId qtId =
+            model_->qtNodeId(item.flowId);
+
+        // 文件中可能存在已经不存在的节点位置记录。
+        // 保留 Manager 当前实际加载的节点为准。
+        if (qtId == QtNodes::InvalidNodeId)
+        {
+            continue;
+        }
+
+        if (!model_->setNodeData(
+            qtId,
+            QtNodes::NodeRole::Position,
+            item.position))
+        {
+            return false;
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 5. 清理旧节点选择状态。
+    // ---------------------------------------------------------
+    Q_EMIT selectedFlowNodeChanged(0);
+
+    return true;
+}
+
+
 
 QStringList VisionFlowEditor::availableNodeTypes() const
 {
@@ -229,11 +403,13 @@ QStringList VisionFlowEditor::availableNodeTypes() const
     return names;
 }
 
+
 QtNodes::NodeId VisionFlowEditor::addNode(QString const& nodeType)
 {
     const QPoint center = view_->viewport()->rect().center();
     return addNodeAt(nodeType, view_->mapToScene(center));
 }
+
 
 QtNodes::NodeId VisionFlowEditor::addNodeAt(QString const& nodeType,
     QPointF scenePosition)
@@ -285,6 +461,7 @@ void VisionFlowEditor::deleteSelection()
     Q_EMIT selectedFlowNodeChanged(0);
 }
 
+
 void VisionFlowEditor::zoomFitAll()
 {
     if (model_->allNodeIds().empty()) {
@@ -297,10 +474,12 @@ void VisionFlowEditor::zoomFitAll()
     }
 }
 
+
 void VisionFlowEditor::resetZoom()
 {
     view_->setupScale(1.0);
 }
+
 
 QMenu* VisionFlowEditor::createCanvasMenu(QPointF scenePosition)
 {
@@ -326,6 +505,7 @@ QMenu* VisionFlowEditor::createCanvasMenu(QPointF scenePosition)
     return menu;
 }
 
+
 void VisionFlowEditor::showNodeMenu(QtNodes::NodeId nodeId)
 {
     const QPoint screenPosition = QCursor::pos();
@@ -341,6 +521,7 @@ void VisionFlowEditor::showNodeMenu(QtNodes::NodeId nodeId)
         menu->popup(screenPosition);
         });
 }
+
 
 void VisionFlowEditor::notifyGraphChanged()
 {

@@ -1,216 +1,109 @@
 # 项目架构
 
-> 项目：ComputerVisionFlow（基于 FlowCV）  
-> 本文对应仓库 `master` 分支提交 `4d9aa80b14d503a58c2e629d061d45d1b3edcfea`（2026-10-13）。  
-> 本文区分**已实现**、**已接入但未完成应用功能**与**后续计划**。实际行为以当前源码为准。
+本文描述当前源码的模块关系、运行路径和接口边界。实现状态与验证依据见 [开发进度](development-status.md)，操作步骤见 [Studio 使用指南](studio-guide.md)，构建环境与依赖来源见 [第三方依赖](../third_party/README.md)。
 
-## 1. 当前状态
+## 模块职责
 
-ComputerVisionFlow 使用 C++20、CMake 和 FlowCV 的 DSPatch 数据流机制。项目已经由工程骨架发展到**第一个无 UI 运行闭环**：
-
-1. `FlowCV::FlowCV_Manager` 创建两个 `Solid`、一个 `Add` 和一个 `Viewer` 节点实例；
-2. 通过 `SetNodeProperty()` 将两个 `Solid` 配置为 640 × 480 的单通道图像，像素值分别为 30、40；
-3. 使用 `ConnectNodes()` 建立 `Solid A → Add[0]`、`Solid B → Add[1]`、`Add → Viewer` 三条连接；
-4. 设置 `SetBufferCount(0)`，调用 `Tick(DSPatch::Component::TickMode::Series)` 同步执行；
-5. 通过 `Viewer::GetFrameCopy()` 获取输出，检查图像尺寸、类型及像素值均符合预期（70）。
-
-这一闭环证明了上述**串行、单次执行路径**在已验证环境下可用，**不代表**自动 Tick、并行执行、插件加载、图形编辑或全部状态恢复场景已完成端到端验证。
-
-| 功能 | 当前状态 |
+| 模块 | 职责与主要入口 |
 | --- | --- |
-| DSPatch 核心 | 已作为静态库接入，并完成串行 Tick 闭环 |
-| SDK 公共类型、属性和节点基类 | 已实现，计算路径不依赖 ImGui/Qt |
-| `FlowCV_Manager` | 已实现节点、连线、状态序列化和运行控制接口 |
-| `InternalNodeManager` | 已实现注册与工厂创建；注册 `Add`、`Solid`、`Viewer` |
-| `PluginManager` | 已有 `.fp` 扫描、加载和实例创建代码；尚未完成端到端插件运行验证 |
-| 内置节点 | `Add`、`Solid`、`Viewer` 已移植并参与构建 |
-| `VisionFlowStudio` | 当前为控制台闭环程序，不创建 Qt 主窗口 |
-| Qt / QtNodes | 已接入构建；`VisionFlowEditor` 尚为占位实现 |
-| 无界面独立程序 | `app/ProcessEngine` 有占位源文件，未加入可执行目标 |
-| 测试、CI、SDK 安装、打包 | 尚未建立正式实现 |
+| `Utils` | 日志等公共辅助功能；[logging](../Utils/logging/logger.h) 使用 spdlog |
+| `sdk` | [公共类型](../sdk/flowTypes.h)、[属性存储](../sdk/flowProperties.h)、[Node 基类](../sdk/flowNode.h)；内部构建 DSPatch |
+| `nodes` | Solid、Add、Viewer 的计算实现；依赖 SDK 与 OpenCV，不创建 Qt 窗口 |
+| `managers` | [FlowCV_Manager](../managers/flowcv_manager.h) 管理运行图，[InternalNodeManager](../managers/node_manager.h) 管理内置工厂，[PluginManager](../managers/plugin_manager.h) 管理动态插件 |
+| `editor` | [VisionFlowEditor](../editor/VisionFlowEditor.h) 组织画布交互，[VisionFlowGraphModel](../editor/Graph/VisionFlowGraphModel.hpp) 适配运行图，[PropertyPanel](../editor/PropertyPanel.h) 编辑参数 |
+| `app/VisionFlowStudio` | [入口](../app/VisionFlowStudio/main.cpp) 装配应用，[MainWindow](../app/VisionFlowStudio/MainWindow.h) 组织 Dock，[ViewerPanel](../app/VisionFlowStudio/ViewerPanel.h) 显示结果 |
+| `plugins`、`tools` | 分别预留插件实现与开发辅助工具；加载器位于 Managers |
+| `third_party` | 查找外部包并构建 QtNodes；DSPatch 由 `sdk/thirdParty` 管理 |
 
-## 2. 设计与移植原则
+SDK 不依赖 Managers、Nodes、Editor 或 Qt；计算节点不依赖编辑器。Managers 在构造内置工厂时直接注册具体节点，因此实际依赖 Nodes。Utils 不反向依赖业务模块。无界面入口 `app/ProcessEngine` 尚未接入可执行目标。
 
-1. **优先保持 FlowCV 原有逻辑。** DSPatch 的 Circuit、Component、Tick/AutoTick、节点处理和原有状态格式应尽可能保留；不因架构美化而重写计算机制。
-2. **仅在必要处解耦 UI。** 原库的 `HasGui()`、`UpdateGui()` 及 ImGui 控件逻辑不进入无界面计算节点；Qt 编辑器通过独立接口读取和修改节点属性、获取处理结果。
-3. **修复具体问题，不预先重构。** 若发现非法索引、连接记录不一致、生命周期或资源管理等明确问题，可局部修正；不为尚不存在的需求建立新状态机、新调度器或第二套数据流引擎。
-4. **当前实现优先于历史规划。** 文档应记录实际依赖和已实现功能；后续结构优化必须另行论证，不将其表述为已完成或必做事项。
-5. **按模块组织，显式管理源码。** 同一功能的头/源文件尽量放在一起；CMake 明确列出源文件，不以递归扫描自动收集业务源码。
+## 图交互与计算
 
-## 3. 目录与模块职责
-
-```text
-ComputerVisionFlow/
-├── CMakeLists.txt
-├── CMakePresets.json
-├── Utils/
-│   └── logging/                  # FlowLogger 与日志宏
-├── sdk/
-│   ├── flowTypes.h/.cpp           # 节点描述与公共类型
-│   ├── flowProperties.h/.cpp      # UI 无关的属性存储及序列化
-│   ├── flowNode.h                 # FlowCV::Node 节点基类
-│   └── thirdParty/dspatch/        # FlowCV 使用的 DSPatch 7.0.1 定制源码
-├── nodes/
-│   ├── Add/
-│   ├── Solid/
-│   ├── Viewer/
-│   └── internal_nodes.h          # 当前内置节点头文件入口
-├── managers/
-│   ├── flowcv_manager.h/.cpp      # 工作流实例、连接、状态与执行
-│   ├── node_manager.h/.cpp        # 内置节点注册及工厂
-│   └── plugin_manager.h/.cpp      # 动态插件管理
-├── editor/
-│   └── VisionFlowEditor.h/.cpp    # Qt 编辑器占位实现
-├── app/
-│   ├── VisionFlowStudio/         # 当前无 UI 闭环入口
-│   └── ProcessEngine/            # 未接入构建的无界面入口占位源码
-├── plugins/                      # 后续动态插件实现位置
-├── third_party/                  # 外部包查找及 QtNodes 源码
-├── tools/                        # 开发辅助工具预留目录
-└── docs/                         # 项目文档
+```mermaid
+flowchart TD
+    Main["MainWindow"] --> Editor["VisionFlowEditor"]
+    Editor --> Model["VisionFlowGraphModel"]
+    Main --> Properties["PropertyPanel"]
+    Model --> Manager["FlowCV_Manager"]
+    Properties --> Manager
+    Manager --> Circuit["DSPatch Circuit"]
+    Circuit --> Nodes["Solid / Add / Viewer"]
+    Main --> Preview["ViewerPanel"]
+    Preview -->|"GetFrameCopy()"| Viewer["Viewer 缓存"]
+    Nodes --> Viewer
 ```
 
-| 模块 | 当前职责 | 当前实际项目依赖 |
+QtNodes 处理节点图形、选择、拖动、连线与缩放；计算数据由 DSPatch 的 SignalBus 传递。GraphModel 的 `PortRole::Data` 返回空值，不建立第二套图像传输或计算链路。
+
+[GraphModel](../editor/Graph/VisionFlowGraphModel.cpp) 维护 QtNodes 的 32 位 NodeId 与 Manager 的 64 位节点 ID 映射，位置和尺寸只作为画布状态缓存。节点创建、删除和连线操作调用 Manager，成功后发送 QtNodes 信号更新图形。输入端口最多连接一路，输出允许分发；新连线只接受相同 IoType，Manager 负责输入连接替换和记录同步。`rebuildFromManager()` 可在外部更改运行图后重读节点并通知画布重建，但不负责文件读取或节点位置持久化。
+
+[VisionFlowEditor](../editor/VisionFlowEditor.cpp) 从内置注册表生成节点菜单，转发选择与图变化通知。删除操作直接调用 GraphModel；Copy、Paste、Duplicate、Undo、Redo 被禁用，因为当前没有完整的 `saveNode/loadNode` 恢复路径。它们不能仅凭 QtNodes 自带功能视为已接入。
+
+[FlowCV_Manager](../managers/flowcv_manager.cpp) 关联管理节点实例、Circuit、`wiring_` 和各节点的输入连接映射；提供节点查询、增删、连接、属性访问及状态存取。`Tick()`、`StartAutoTick()`、`StopAutoTick()` 和缓冲设置直接调用 DSPatch，沿用其调度机制。
+
+## 属性与节点接口
+
+`FlowCV::Node` 继承 `DSPatch::Component`，提供 `Properties()`、`GetPropertiesSnapshot()` 和 `RefreshProperties()`。计算节点在 `Process_()` 内通过输入总线读取数据，并向输出总线写入结果；节点可覆盖 `GetState()/SetState()` 保留已有状态格式。
+
+属性系统支持 Bool、Int、Float、Option。值类型为 `bool / int / float`，Option 使用整数索引；声明中的 Separator 目前没有公开添加接口或可编辑控件。参数的数据路径为：
+
+1. PropertyPanel 通过 Manager 获取属性快照，为所有有可编辑属性的节点建立独立折叠分组；选择节点改变标题高亮。
+2. 控件写入 `SetNodeProperty()`，进入属性编辑值；Bool / Option 的修改会排队刷新受影响分组，更新动态可见性。
+3. 节点处理时调用 `Sync()`，将待生效的编辑值同步到计算读取值。`GetW()` 读取编辑值，`Get()` 读取计算值。
+4. `Snapshot()` 在一次锁保护下取得属性集合与 revision。`Sync()` 不消耗界面修订；不同实例的 revision 不能直接互相比较。
+
+属性公共操作各自加锁，不保证多个独立 Get 调用构成同一批快照。数值范围和 step 是编辑提示，`Set()` 不统一裁剪数值；节点可在计算路径中限制范围。整数控件以 1 为步进，IntRange.step 仍表示原有编辑速度提示。
+
+默认 `ToJson()` 保存可见属性的编辑值，`FromJson()` 先验证待应用字段，再更新编辑值与计算值。Solid 使用自己的状态转换，保留 `solid_color` 等原库字段；Viewer 没有可存参数，返回空状态。三类节点的端口与处理条件见 [节点说明](../nodes/README.md)。
+
+## 预览与对象生命周期
+
+MainWindow 根据真实 Viewer 节点 ID 创建、更新和移除独立 Dock，以 `ViewerDock_<id>` 作为对象名，供窗口布局恢复使用。删除 Viewer 节点后，对应 Dock 隐藏并通过 `deleteLater()` 释放；隐藏预览窗口不会删除或停止计算节点。
+
+Viewer 在处理路径缓存输入，`GetFrameCopy()` 加锁后返回深拷贝。ViewerPanel 在 Qt 线程以 33 ms 定时器读取缓存，再转换为 QImage / QPixmap 并等比适应窗口；该定时器不驱动 DSPatch。当前显示类型为 `CV_8UC1/3/4`，源节点帧率与界面刷新周期相互独立。
+
+[main.cpp](../app/VisionFlowStudio/main.cpp) 创建 QApplication 和 Manager，将缓冲数设为 0，再创建 MainWindow，启动 AutoTick 并进入事件循环。事件循环退出后先停止 AutoTick，随后局部对象按 MainWindow、Manager 的顺序析构，Manager 比所有使用它的界面存活更久。Manager 析构再次停止执行、移除 Circuit 组件并清理节点记录。
+
+Editor 先构造 Model，再构造 Scene、View；析构时先断开回调，再按 View → Scene → Model 的顺序释放，避免图形对象清理时访问已销毁的模型。Qt 界面对象不进入计算节点。
+
+## 状态与持久化
+
+运行图与界面布局分别保存，当前职责如下：
+
+| 数据 | 所属位置与接口 | 边界 |
 | --- | --- | --- |
-| `Utils` | 日志封装与公共辅助功能 | spdlog |
-| `sdk` | `FlowCV::Node`、`FlowCV_Properties`、公共类型 | DSPatch、nlohmann_json |
-| `nodes` | 内置节点及 OpenCV 图像处理 | `sdk`、OpenCV core、nlohmann_json |
-| `managers` | 工作流管理、内置节点注册、动态插件加载 | `sdk`、`nodes`、`Utils` |
-| `editor` | 未来的图编辑、属性面板和结果显示 | `sdk`、`managers`、QtNodes（当前仅构建接入） |
-| `app/VisionFlowStudio` | 程序入口与当前闭环运行验证 | `editor`、`managers`、`Utils`、`nodes` |
-| `plugins` | 未来的外部插件实现 | 当前没有插件构建目标 |
-| `third_party` | 查找 spdlog、JSON，条件构建 QtNodes | 外部依赖，不承载业务逻辑 |
-| `tools` | 开发脚本、模板与离线工具的预留位置 | 不参与当前运行时 |
+| 节点、参数、启用状态与连线 | Manager 的 GetState / SetState / LoadState / SaveState | JSON 包含 `nodes`、`connections`；Studio 尚无文件操作入口 |
+| 节点位置与尺寸 | GraphModel 的内存映射 | 尚无工程文件保存与恢复 |
+| 窗口尺寸与 Dock 布局 | MainWindow 的 QSettings | 使用 Geometry / DockState 与布局版本；不包含运行图 |
 
-**依赖约定：** SDK 不反向依赖 Managers、Nodes、Editor 或 Qt；计算节点不依赖图形编辑器。当前 `InternalNodeManager` 在 `node_manager.cpp` 中直接注册具体节点，因此 **Managers 实际依赖 Nodes**；这是现行设计，不应为了符合旧文档而立即改写注册架构。`Utils` 不反向依赖业务模块。UI 相关对象仅应出现在 Editor/App 层。
+Manager 的节点记录保存名称、ID、实例编号、enabled 及可选 params，连线记录保存两端节点 ID 与端口索引。载入时先检查顶层结构，再清空并逐项恢复；它不提供事务式整体回滚，失败可能留下部分新图。
 
-头文件是否对外公开取决于其使用场景。当前各库以模块目录作为 CMake `PUBLIC` 包含目录；这不等同于已形成可安装、稳定 ABI 的 SDK。必要时可以在功能目录中使用 `detail/` 放置内部头文件，但暂不强制新增目录层级。
+应用不自动恢复上次运行图。延迟创建的 Viewer Dock 会尝试按对象名恢复布局，但这不会重建 Viewer 节点，也不能据此保证恢复整份流程工程。
 
-## 4. 核心运行结构
+## CMake 目标与依赖
 
-### 4.1 SDK 与属性系统
+下表按各模块 `target_link_libraries()` 的当前声明整理：
 
-- `flowTypes.h` 定义 `NodeDescription` 和节点分类相关接口。`GuiInterfaceType` 目前仍保留在类型声明中，但不代表当前计算节点存在 ImGui 依赖。
-- `flowNode.h` 提供 `FlowCV::Node`，继承 `DSPatch::Component`；节点可通过 `Properties()`、`GetPropertiesSnapshot()` 与 `RefreshProperties()` 维护可编辑参数，并可覆盖 `GetState()` / `SetState()` 保持原库状态格式。
-- `flowProperties.h/.cpp` 支持 Bool、Int、Float、Option 属性，具有范围提示、选项、可见性、默认值、快照、修订版本和 JSON 读写功能。
-- `Set()` 写入待生效的编辑值；处理路径通过 `Sync()` 更新用于计算的读取值。`GetW()` 读取编辑值，`Get()` 读取计算值。`Snapshot()` 获取一次一致的属性集合；修订版本是**单个属性实例内**的版本号。
-- 数值范围和步长主要用于编辑提示，`Set()` 并不统一按范围裁剪；节点可在自身处理逻辑中校验或限制数值。
-- `FlowCV_Manager::GetNodePropertiesSnapshot()` 和三个 `SetNodeProperty()` 重载向上层提供 UI 无关的属性访问。**目前没有**通用 String/FilePath 属性类型或 Qt 参数面板。
-
-### 4.2 内置节点
-
-目前 `nodes/internal_nodes.h` 包含三个节点的头文件，`InternalNodeManager` 构造时通过 `RegisterNode<T>()` 注册：
-
-- **Solid**：生成固定尺寸、颜色或灰度值的图像，并保留原库的帧率控制、状态字段及主要算法行为；以属性系统代替原先的 ImGui 控件。
-- **Add**：使用 OpenCV 完成两路图像加法，保留可选 Mask 输入和 Mask Mode 选项。
-- **Viewer**：缓存处理结果，保留作为终端节点的原有职责；新增 `GetFrameCopy()`，通过互斥锁返回图像深拷贝，供无 UI 调用方读取。
-
-各节点仍使用 DSPatch `Process_()` 与 SignalBus 完成计算和数据传输；不在节点内部创建 Qt 窗口。新增节点时首先对照 FlowCV 原库确认输入输出、算法、参数和序列化行为，再只对需要的 UI 依赖进行解耦。
-
-### 4.3 工作流与管理器
-
-`FlowCV_Manager` 继续作为运行图管理入口：
-
-- **节点：** `CreateNewNodeInstance()`、`RemoveNodeInstance()`、`GetNodeInfoById()` 等；节点实例由 DSPatch Circuit 和 Manager 关联管理。
-- **连线：** `ConnectNodes()`、`DisconnectNodes()`、`DisconnectNodeInput()` 及 Wire 查询/移除；实际信号连接由 DSPatch 完成，Manager 同步维护 `wiring_`、`input_conn_map`。
-- **状态：** `GetState()`、`SetState()`、`NewState()`、`LoadState()`、`SaveState()`。JSON 主要包含 `nodes`、`connections`；节点自身参数由相应节点的 `GetState()` / `SetState()` 处理。
-- **执行：** `SetBufferCount()`、`GetBufferCount()`、`Tick()`、`StartAutoTick()`、`StopAutoTick()`，直接使用 DSPatch Circuit 的既有能力。
-
-原版 FlowCV 没有独立的 `Stopped/Running/Paused` 应用状态机；本项目**不新增**此类调度层。DSPatch 内部的 `PauseAutoTick()` / `ResumeAutoTick()` 用于其既有结构变更及同步路径，保留原有机制。
-
-当前 `SetState()` 沿用原库的“先清空、再按节点和连接恢复”方式，不提供事务式整体回滚；未验证的错误路径不应被表述为已经保证原子恢复。UI 编辑器未来的节点位置、窗口布局等状态不属于现有 Manager 的运行图状态，应在实现编辑器时按需要保存。
-
-### 4.4 插件与日志
-
-`PluginManager` 目前保留 FlowCV 的 `.fp` 插件扫描、描述读取、工厂创建及卸载接口，底层使用 DSPatch 插件机制。当前 `plugins/` 还没有实际插件构建目标，也没有已验证的插件端到端流程；不能将“管理器代码已存在”等同于“插件生态已经可用”。实际使用时须注意插件实例与动态库句柄的生命周期先后关系。
-
-`Utils/logging` 已实现 `FlowCV::FlowLogger` 与 `LOG_DEBUG/INFO/WARN/ERROR` 宏，使用 spdlog；相关管理器可调用日志宏。当前 `VisionFlowStudio` 闭环入口没有显式执行 `LOGGER_INIT`，因此不能将自定义异步日志器初始化描述为已在应用入口完成。
-
-## 5. CMake 目标与依赖边界
-
-| 目标 | 别名 | 类型 | `target_link_libraries` 当前依赖 |
+| 目标 | 类型 | PUBLIC 依赖 | PRIVATE 依赖 |
 | --- | --- | --- | --- |
-| `VisionFlowUtils` | `VisionFlow::Utils` | STATIC | `PUBLIC spdlog::spdlog` |
-| `visionflow_dspatch` | `VisionFlow::DSPatch` | STATIC | `PRIVATE Threads::Threads`、`${CMAKE_DL_LIBS}` |
-| `VisionFlowSdk` | `VisionFlow::Sdk` | STATIC | `PUBLIC VisionFlow::DSPatch`、`nlohmann_json::nlohmann_json` |
-| `VisionFlowNodes` | `VisionFlow::Nodes` | STATIC | `PUBLIC VisionFlow::Sdk`、`nlohmann_json::nlohmann_json`、`opencv_core` |
-| `VisionFlowManagers` | `VisionFlow::Managers` | STATIC | `PUBLIC VisionFlow::Sdk`；`PRIVATE VisionFlow::Nodes`、`VisionFlow::Utils` |
-| `VisionFlowEditor` | `VisionFlow::Editor` | STATIC | `PRIVATE VisionFlow::Sdk`、`VisionFlow::Managers`、`QtNodes::QtNodes` |
-| `VisionFlowStudio` | 无 | EXECUTABLE | `PRIVATE VisionFlow::Editor`、`VisionFlow::Managers`、`VisionFlow::Utils`、`VisionFlow::Nodes` |
+| `VisionFlowUtils` | STATIC | spdlog::spdlog | — |
+| `visionflow_dspatch` | STATIC | — | Threads::Threads、CMAKE_DL_LIBS |
+| `VisionFlowSdk` | STATIC | VisionFlow::DSPatch、nlohmann_json::nlohmann_json | — |
+| `VisionFlowNodes` | STATIC | VisionFlow::Sdk、nlohmann_json::nlohmann_json、opencv_core | — |
+| `VisionFlowManagers` | STATIC | VisionFlow::Sdk | VisionFlow::Nodes、VisionFlow::Utils |
+| `VisionFlowEditor` | STATIC | VisionFlow::Managers、QtNodes::QtNodes、Qt6::Widgets | VisionFlow::Sdk、Qt6::Core |
+| `VisionFlowStudio` | EXECUTABLE | — | VisionFlow::Editor、VisionFlow::Managers、VisionFlow::Utils、VisionFlow::Nodes、Qt6::Widgets |
 
-`QtNodes::QtNodes` 由 `third_party/nodeeditor` 构建；当前没有单独的 `VisionFlowPlugins` 目标，也未生成 `ProcessEngine` 可执行程序。
+项目静态库提供对应的 `VisionFlow::<模块名>` 别名；DSPatch 的别名为 `VisionFlow::DSPatch`。QtNodes 也作为静态库构建，但当前 Qt SDK 使用动态库。
 
-主要构建约定：
+顶层依次进入 third_party、Utils、sdk、nodes、managers、plugins；`VISIONFLOW_BUILD_STUDIO=ON` 时再进入 editor 与 app。关闭 Studio 后跳过 Qt、QtNodes、Editor 和 Studio，只生成基础库，不生成 ProcessEngine。
 
-- 顶层先进入 `third_party`、`Utils`、`sdk`、`nodes`、`managers`、`plugins`；`VISIONFLOW_BUILD_STUDIO=ON` 时再进入 `editor` 和 `app`。
-- 由于当前 `node_manager.cpp` 静态引用了内置节点，`nodes` 必须先定义目标，Managers 再链接 `VisionFlow::Nodes`。
-- 外部包由合适的 CMake 入口查找；跨模块使用头文件与库的依赖通过 `target_include_directories()`、`target_link_libraries()` 显式传播，不使用项目根目录全局包含路径或全局链接路径。
-- `spdlog` 和 `nlohmann_json` 在 `third_party/CMakeLists.txt` 中以 `find_package(... CONFIG REQUIRED GLOBAL)` 查找；OpenCV `core` 在 `nodes/CMakeLists.txt` 中查找；Qt 6 由顶层在启用 Studio 时查找。
-- DSPatch 位于 `sdk/thirdParty/dspatch`，当前采用 FlowCV 定制版 7.0.1 的核心源码并编成静态库，不改写其调度与插件加载原理。QtNodes 使用固定源码快照，静态构建，不构建上游示例、测试及文档。
-- `VISIONFLOW_BUILD_STUDIO=OFF` 时跳过 Qt 查找、QtNodes、Editor 和 Studio，但**仍会构建** Utils、Sdk、Nodes、Managers 和 DSPatch；仍需要 OpenCV，不自动生成无界面执行程序。
-- Windows 下 `VisionFlowStudio` 构建后使用 `$<TARGET_RUNTIME_DLLS:VisionFlowStudio>` 复制可识别的运行时 DLL；这不等于已完成应用安装部署。
+公开头文件需要的包含路径与依赖通过目标传播；模块目录作为 PUBLIC 包含目录不等于可安装 SDK 或稳定 ABI。Editor 公开 QtNodes 与 Managers 使用要求，并启用 AUTOMOC；SDK 与 DSPatch 不依赖 Qt。
 
-## 6. Windows 开发环境和构建配置
+## 扩展与源码组织
 
-| 项目 | 当前约定 |
-| --- | --- |
-| 编译语言 | C++20（`CMAKE_CXX_STANDARD=20`） |
-| CMake | 3.25 及以上 |
-| 工具链 | Windows、MSVC、Ninja；当前以 x64 为主 |
-| 默认配置 | Release、`x64-windows` vcpkg triplet |
-| vcpkg | 非 Manifest 模式；通过 `VCPKG_ROOT` 指定工具链位置 |
-| 必需包 | spdlog、nlohmann_json、OpenCV core；Studio ON 时还需 Qt 6 |
-| QtNodes / DSPatch | 使用仓库内已固定或已整理的第三方源码 |
-| 构建输出 | `out/build/<presetName>`，不提交到 Git |
+保持 FlowCV 的 DSPatch 执行与节点计算机制，通过 UI 无关的参数和图像读取接口接入 Qt。现有 `HasGui()/UpdateGui()` 类型接口仍保留，但当前应用不调用原版 ImGui 控件；插件适配边界见 [插件说明](../plugins/README.md)。
 
-共享 `CMakePresets.json` 当前只提供隐藏的 `windows-base` 配置基类及 Qt 相关隐藏预设；它们不是公开的可直接选用构建入口。机器相关的 `CMakeUserPresets.json` 不纳入 Git，按照 [README](../README.md) 的约定提供 `local-x64-release` 配置与同名构建预设，指定本机 vcpkg、Qt 和 OpenCV 路径。
+模块按功能聚合头文件与实现，CMake 显式登记源码。Utils 先创建一个公共库，各功能目录用 `target_sources()` 加入该库；[logging/CMakeLists.txt](../Utils/logging/CMakeLists.txt) 是现有示例。其他模块按其实际清单组织，不通过递归扫描自动纳入业务源码，也不提前创建空的功能库。
 
-常用命令（需要本机存在 `local-x64-release` 用户预设）：
-
-```powershell
-cmake --preset local-x64-release
-cmake --build --preset local-x64-release
-& ./out/build/local-x64-release/app/VisionFlowStudio/VisionFlowStudio.exe
-```
-
-当前共享预设选用 Release，适配现有的 Release OpenCV。工程**没有**添加全局 Debug 禁令；`nodes/CMakeLists.txt` 保留在误选 MSVC Debug 且 OpenCV 缺少对应 Debug 库时拒绝继续配置的检查。不得将不同 CRT/编译配置的库强行混用。顶层 `CMP0141` 和 `CMAKE_MSVC_DEBUG_INFORMATION_FORMAT` 保留已有条件配置，不因当前主用 Release 而强制重写。
-
-生成目录 `out/`、IDE 缓存 `.vs/` 和本机配置 `CMakeUserPresets.json` 不属于源码。更换工具链或包位置后应重新配置 CMake；必要时使用 `--fresh` 更新当前构建树缓存，而不是直接修改生成文件。
-
-第三方库版本、许可证和历史验证信息统一以 [第三方依赖](../third_party/README.md) 为准；此处不将特定开发机器的安装路径写入共享工程规则。
-
-## 7. 功能级 CMake 组织
-
-模块先创建库目标，功能子目录通过 `target_sources()` 注册自身文件。现有 Logging 是实际使用的例子：
-
-```cmake
-# Utils/CMakeLists.txt
-add_library(VisionFlowUtils STATIC)
-add_library(VisionFlow::Utils ALIAS VisionFlowUtils)
-add_subdirectory(logging)
-```
-
-```cmake
-# Utils/logging/CMakeLists.txt（节选）
-target_sources(VisionFlowUtils PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/logger.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/logger.cpp"
-)
-target_link_libraries(VisionFlowUtils PUBLIC spdlog::spdlog)
-```
-
-`nodes`、`sdk`、`managers` 和 `editor` 目前主要在各自模块的 `CMakeLists.txt` 中显式维护源码清单，并**未**统一改成每个功能一个库或每个功能一个子目录。以后新增功能时按实际需要增设子目录；不提前创建空模块，不使用 `file(GLOB_RECURSE)` 替代显式清单。头文件对下游公开需要相应依赖时使用 `PUBLIC`，仅实现内部使用则优先 `PRIVATE`，以当前接口的实际需求为准。
-
-## 8. 下一阶段边界（尚未实现）
-
-当前下一阶段重点是实现独立于计算核心的 Qt 图形编辑器：节点显示、交互创建/连线、通用属性面板和 Viewer 图像展示。QtNodes 负责编辑交互；DSPatch 和 FlowCV Manager 继续负责运行图和计算，不因为更换 UI 而增加新的执行状态机或调度器。
-
-后续可按实际需求逐步处理工程布局保存、更多内置节点、图像/视频插件、独立无 UI Runner、自动化测试、CI、SDK 安装与发布。这些均属于**待开发事项**，不应在当前状态表中标记为已完成。`app/ProcessEngine/headless_process_engine.cpp` 是已有的占位文件；实际 Runner 的命名和构建目标待功能开发时确认，不预先创建另一套空工程结构。
-
-## 9. 文档维护与验证边界
-
-- **已验证：** 现有 `VisionFlowStudio` 中 Solid + Add + Viewer 的同步运行闭环，依据项目现有入口与已提供的运行结果。
-- **已有实现但需在对应阶段验证：** 状态文件完整往返、动态删改连线、自动 Tick / 并行处理、插件加载与卸载、GUI 集成。
-- **尚未实现：** 可操作 Qt 编辑器、正式独立无界面程序、自动化测试框架、CI 和安装打包。
-
-每次修改模块目标、第三方依赖、目录结构或功能完成状态时，应同步更新本文件和根目录 README。历史编译实验及早期架构假设保留在对应历史记录中，不再作为当前实现的事实依据。
+构建准备、依赖版本和 Windows 部署细节由 [第三方依赖说明](../third_party/README.md) 维护，待开发事项和验证范围由 [开发进度](development-status.md) 维护。

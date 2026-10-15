@@ -7,6 +7,8 @@
 #include <QtNodes/Definitions>
 #include <QtWidgets/QWidget>
 
+#include <nlohmann/json.hpp>
+
 class QAction;
 class QMenu;
 
@@ -22,27 +24,57 @@ namespace QtNodes {
 class VisionFlowGraphModel;
 
 // QtNodes 画布组件。
-// 不管理 DSPatch 节点生命周期；真实节点/连线始终由 GraphModel 转交 Manager 管理。
+// 真实节点与连线仍由 FlowCV_Manager 管理。
 class VisionFlowEditor final : public QWidget
 {
     Q_OBJECT
 
 public:
-    explicit VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
+    explicit VisionFlowEditor(
+        FlowCV::FlowCV_Manager& manager,
         QWidget* parent = nullptr);
+
     ~VisionFlowEditor() override;
 
-    VisionFlowGraphModel* graphModel() const noexcept { return model_; }
-    QtNodes::BasicGraphicsScene* graphicsScene() const noexcept { return scene_; }
-    QtNodes::GraphicsView* graphicsView() const noexcept { return view_; }
+    VisionFlowGraphModel* graphModel() const noexcept
+    {
+        return model_;
+    }
+
+    QtNodes::BasicGraphicsScene* graphicsScene() const noexcept
+    {
+        return scene_;
+    }
+
+    QtNodes::GraphicsView* graphicsView() const noexcept
+    {
+        return view_;
+    }
+
     QAction* deleteSelectionAction() const;
 
-    // 从已注册的内置节点读取菜单条目；不硬编码 Solid / Add / Viewer。
+    // Node Library
     QStringList availableNodeTypes() const;
 
-    // 在当前视口中心 / 给定 scene 坐标创建节点。
+    // Node Creation
     QtNodes::NodeId addNode(QString const& nodeType);
-    QtNodes::NodeId addNodeAt(QString const& nodeType, QPointF scenePosition);
+
+    QtNodes::NodeId addNodeAt(
+        QString const& nodeType,
+        QPointF scenePosition);
+
+    // ---------------------------------------------------------
+    // Stage E: Editor State
+    // ---------------------------------------------------------
+
+    // 保存画布节点的位置。
+    // 返回原版 FlowCV 的 editor 数组。
+    nlohmann::json getEditorState() const;
+
+    // Manager 完成 SetState / NewState 后调用。
+    // 同步 QtNodes，并恢复 editor 节点位置。
+    bool restoreFromManager(
+        const nlohmann::json& state);
 
 public Q_SLOTS:
     void deleteSelection();
@@ -56,11 +88,17 @@ Q_SIGNALS:
 
 private:
     QMenu* createCanvasMenu(QPointF scenePosition);
+
     void showNodeMenu(QtNodes::NodeId nodeId);
+
     void notifyGraphChanged();
 
+private:
     FlowCV::FlowCV_Manager& manager_;
+
     VisionFlowGraphModel* model_ = nullptr;
+
     QtNodes::BasicGraphicsScene* scene_ = nullptr;
+
     QtNodes::GraphicsView* view_ = nullptr;
 };

@@ -10,12 +10,19 @@
 
 #include <cstdint>
 #include <memory>
+#include <exception>
 
 #include <QtCore/QSettings>
+#include <QtCore/QByteArray>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
+#include <QtCore/QSaveFile>
+#include <QtCore/QTimer>
 
 #include <QtGui/QAction>
 #include <QtGui/QCloseEvent>
 #include <QtGui/QColor>
+#include <QtGui/QKeySequence>
 
 #include <QtWidgets/QDockWidget>
 #include <QtWidgets/QLabel>
@@ -25,6 +32,8 @@
 #include <QtWidgets/QStatusBar>
 #include <QtWidgets/QToolBar>
 #include <QtWidgets/QToolButton>
+#include <QtWidgets/QFileDialog>
+#include <QtWidgets/QMessageBox>
 
 #include <QtNodes/StyleCollection>
 #include <QtNodes/NodeStyle>
@@ -42,7 +51,6 @@ namespace
 // =============================================================
 // Construction
 // =============================================================
-
 MainWindow::MainWindow(FlowCV::FlowCV_Manager& manager, QWidget* parent)
     : QMainWindow(parent), manager_(manager)
 {
@@ -131,10 +139,49 @@ MainWindow::MainWindow(FlowCV::FlowCV_Manager& manager, QWidget* parent)
     // 处理创建 MainWindow 之前已经存在的 Viewer。
     syncViewerDocks();
 
+#ifdef USE_OLD
     refreshGraphStatistics();
+    statusBar()->showMessage(QStringLiteral("Ready"));
+#else 
+    refreshGraphStatistics();
+    statusBar()->showMessage(QStringLiteral("Ready"));
 
-    statusBar()->showMessage(
-        QStringLiteral("Ready"));
+    // Stage E: 初始化当前项目状态。
+    savedProjectState_ = collectProjectState();
+    refreshProjectTitle();
+
+    // ---------------------------------------------------------
+    // 定期比较项目状态。
+    // 与原版 FlowCV 的状态快照比较思路一致。
+    //
+    // 用于检测节点位置、属性以及连接等变化。
+    // 该定时器不参与 DSPatch 计算。
+    // ---------------------------------------------------------
+    auto* projectStateTimer = new QTimer(this);
+
+    projectStateTimer->setInterval(1000);
+
+    QObject::connect(
+        projectStateTimer,
+        &QTimer::timeout,
+        this,
+        [this]()
+        {
+            try
+            {
+                refreshProjectTitle();
+            }
+            catch (const std::exception&)
+            {
+                // 读取失败不应在 Qt 定时器回调中
+                // 直接导致程序异常退出。
+                // 保存与关闭时仍会明确提示错误。
+            }
+        });
+
+    projectStateTimer->start();
+
+#endif
 }
 
 
@@ -144,11 +191,27 @@ MainWindow::MainWindow(FlowCV::FlowCV_Manager& manager, QWidget* parent)
 // =============================================================
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+#ifdef USE_OLD
     // 保存窗口尺寸和 Dock 布局。
     // 不保存 FlowCV 运行图。
     saveWindowLayout();
 
     QMainWindow::closeEvent(event);
+#else 
+    // ------------------------ 提醒未保存修改 ---------------------------
+    if (!confirmDiscardChanges())
+    {
+        event->ignore();
+        return;
+    }
+
+    // ---------------- 沿用原有QSettings保存Dock布局 ---------------------
+    saveWindowLayout();
+
+    // ------------------------- 正常关闭窗口 ------------------------------
+    QMainWindow::closeEvent(event);
+
+#endif
 }
 
 
@@ -301,8 +364,46 @@ void MainWindow::setupAppearance()
             border-top: 1px solid #3b4552;
         }
 
-        QLabel {
+        QDockWidget QLabel, QStatusBar QLabel {
             color: #d8dfe8;
+        }
+
+        QMessageBox {
+            background-color: #28313b;
+            color: #dfe5ed;
+        }
+
+        QMessageBox QLabel {
+            background-color: transparent;
+            color: #dfe5ed;
+        }
+
+        QMessageBox QPushButton {
+            background-color: #303946;
+            color: #e1e6ed;
+            border: 1px solid #536070;
+            border-radius: 3px;
+            padding: 5px 14px;
+            min-width: 56px;
+        }
+
+        QMessageBox QPushButton:default,
+        QMessageBox QPushButton:focus {
+            border-color: #44a6c3;
+        }
+
+        QMessageBox QPushButton:hover:enabled {
+            background-color: #405366;
+        }
+
+        QMessageBox QPushButton:pressed:enabled {
+            background-color: #2c647a;
+        }
+
+        QMessageBox QPushButton:disabled {
+            background-color: #29313b;
+            color: #687584;
+            border-color: #424c5a;
         }
 
         QLabel#ViewerPlaceholder {
@@ -351,6 +452,74 @@ void MainWindow::setupAppearance()
         QDoubleSpinBox:focus,
         QComboBox:focus {
             border: 1px solid #44a6c3;
+        }
+
+        QSpinBox, QDoubleSpinBox {
+            padding-right: 28px;
+        }
+
+        QSpinBox::up-button, QDoubleSpinBox::up-button,
+        QSpinBox::down-button, QDoubleSpinBox::down-button {
+            subcontrol-origin: border;
+            width: 24px;
+            background-color: #303946;
+            border-left: 1px solid #536070;
+        }
+
+        QSpinBox::up-button, QDoubleSpinBox::up-button {
+            subcontrol-position: top right;
+            border-bottom: 1px solid #536070;
+            border-top-right-radius: 3px;
+        }
+
+        QSpinBox::down-button, QDoubleSpinBox::down-button {
+            subcontrol-position: bottom right;
+            border-bottom-right-radius: 3px;
+        }
+
+        QSpinBox::up-button:hover:enabled:!off,
+        QDoubleSpinBox::up-button:hover:enabled:!off,
+        QSpinBox::down-button:hover:enabled:!off,
+        QDoubleSpinBox::down-button:hover:enabled:!off {
+            background-color: #405366;
+        }
+
+        QSpinBox::up-button:pressed:enabled:!off,
+        QDoubleSpinBox::up-button:pressed:enabled:!off,
+        QSpinBox::down-button:pressed:enabled:!off,
+        QDoubleSpinBox::down-button:pressed:enabled:!off {
+            background-color: #2c647a;
+        }
+
+        /* :off marks a direction blocked by the minimum or maximum value. */
+        QSpinBox::up-button:disabled, QSpinBox::up-button:off,
+        QDoubleSpinBox::up-button:disabled, QDoubleSpinBox::up-button:off,
+        QSpinBox::down-button:disabled, QSpinBox::down-button:off,
+        QDoubleSpinBox::down-button:disabled, QDoubleSpinBox::down-button:off {
+            background-color: #29313b;
+            border-color: #424c5a;
+        }
+
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+            image: url(:/visionflowstudio/icons/spin-up.svg);
+            width: 10px;
+            height: 6px;
+        }
+
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+            image: url(:/visionflowstudio/icons/spin-down.svg);
+            width: 10px;
+            height: 6px;
+        }
+
+        QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off,
+        QDoubleSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:off {
+            image: url(:/visionflowstudio/icons/spin-up-disabled.svg);
+        }
+
+        QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off,
+        QDoubleSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:off {
+            image: url(:/visionflowstudio/icons/spin-down-disabled.svg);
         }
 
         QComboBox QAbstractItemView {
@@ -949,6 +1118,520 @@ void MainWindow::saveWindowLayout() const
 
 
 // =============================================================
+// Collect Project State: 收集完整项目状态
+// =============================================================
+nlohmann::json MainWindow::collectProjectState() const
+{
+    // 运行图：节点、参数和连接。
+    nlohmann::json state = manager_.GetState();
+
+    // 编辑器：节点位置。
+    state["editor"] = editor_->getEditorState();
+
+    return state;
+}
+
+
+// =============================================================
+// Saved Snapshot: 保存当前项目快照
+// =============================================================
+void MainWindow::updateSavedSnapshot()
+{
+    savedProjectState_ = collectProjectState();
+
+    refreshProjectTitle();
+}
+
+
+// =============================================================
+// Project Modified: 检查未保存修改
+// =============================================================
+bool MainWindow::isProjectModified() const
+{
+    return collectProjectState() != savedProjectState_;
+}
+
+
+// =============================================================
+// Project Window Title: 更新窗口标题
+// =============================================================
+void MainWindow::refreshProjectTitle()
+{
+    const QString fileName =
+        currentProjectFile_.isEmpty()
+        ? QStringLiteral("Untitled")
+        : QFileInfo(currentProjectFile_).fileName();
+
+    const bool modified = isProjectModified();
+
+    setWindowTitle(
+        QStringLiteral("VisionFlowStudio - %1%2")
+        .arg(fileName)
+        .arg(modified
+            ? QStringLiteral(" *")
+            : QString()));
+}
+
+
+// =============================================================
+// Confirm Unsaved Changes: 未保存修改提示
+// =============================================================
+bool MainWindow::confirmDiscardChanges()
+{
+    try
+    {
+        if (!isProjectModified())
+        {
+            return true;
+        }
+    }
+    catch (const std::exception& e)
+    {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("Project Error"),
+            QStringLiteral(
+                "Unable to inspect project changes:\n%1")
+            .arg(QString::fromUtf8(e.what())));
+
+        return false;
+    }
+
+    const QMessageBox::StandardButton answer =
+        QMessageBox::question(
+            this,
+            QStringLiteral("Unsaved Changes"),
+            QStringLiteral(
+                "The current project has unsaved changes.\n"
+                "Do you want to save them?"),
+            QMessageBox::Save |
+            QMessageBox::Discard |
+            QMessageBox::Cancel,
+            QMessageBox::Save);
+
+    switch (answer)
+    {
+    case QMessageBox::Save:
+        // 保存失败或取消 Save As 时，不继续操作。
+        return saveProject();
+
+    case QMessageBox::Discard:
+        return true;
+
+    case QMessageBox::Cancel:
+    default:
+        return false;
+    }
+}
+
+
+// =============================================================
+// Write Project File: 保存到指定文件
+// =============================================================
+bool MainWindow::saveProjectToFile(
+    const QString& filePath)
+{
+    try
+    {
+        // -----------------------------------------------------
+        // 1. 合并 Manager 和 Editor 状态。
+        // -----------------------------------------------------
+        const nlohmann::json state =
+            collectProjectState();
+
+        // -----------------------------------------------------
+        // 2. 转换为 JSON 文本。
+        // -----------------------------------------------------
+        const std::string jsonText =
+            state.dump(4) + "\n";
+
+        const QByteArray data =
+            QByteArray::fromStdString(jsonText);
+
+        // -----------------------------------------------------
+        // 3. 写入 .flow 文件。
+        // -----------------------------------------------------
+        QSaveFile file(filePath);
+
+        if (!file.open(QIODevice::WriteOnly))
+        {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("Save Failed"),
+                QStringLiteral(
+                    "Unable to open project file:\n%1\n\n%2")
+                .arg(filePath, file.errorString()));
+
+            return false;
+        }
+
+        if (file.write(data) != data.size())
+        {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("Save Failed"),
+                QStringLiteral(
+                    "Unable to write project file:\n%1\n\n%2")
+                .arg(filePath, file.errorString()));
+
+            file.cancelWriting();
+
+            return false;
+        }
+
+        if (!file.commit())
+        {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("Save Failed"),
+                QStringLiteral(
+                    "Unable to complete project save:\n%1\n\n%2")
+                .arg(filePath, file.errorString()));
+
+            return false;
+        }
+
+        // -----------------------------------------------------
+        // 4. 保存成功后更新文件路径和基准状态。
+        // -----------------------------------------------------
+        currentProjectFile_ = filePath;
+
+        savedProjectState_ = state;
+
+        refreshProjectTitle();
+
+        statusBar()->showMessage(
+            QStringLiteral("Project saved: %1")
+            .arg(filePath),
+            4000);
+
+        return true;
+    }
+    catch (const std::exception& e)
+    {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("Save Failed"),
+            QStringLiteral(
+                "Unable to save project:\n%1")
+            .arg(QString::fromUtf8(e.what())));
+
+        return false;
+    }
+}
+
+
+
+// =============================================================
+// Save: Save操作
+// =============================================================
+bool MainWindow::saveProject()
+{
+    // 尚未选择项目路径时转为 Save As。
+    if (currentProjectFile_.isEmpty())
+    {
+        return saveProjectAs();
+    }
+
+    return saveProjectToFile(currentProjectFile_);
+}
+
+
+
+// =============================================================
+// Save As: Save as操作
+// =============================================================
+bool MainWindow::saveProjectAs()
+{
+    const QString suggestedFile =
+        currentProjectFile_.isEmpty()
+        ? QStringLiteral("Untitled.flow")
+        : currentProjectFile_;
+
+    QString filePath =
+        QFileDialog::getSaveFileName(
+            this,
+            QStringLiteral("Save Flow Project"),
+            suggestedFile,
+            QStringLiteral(
+                "FlowCV Project (*.flow)"));
+
+    if (filePath.isEmpty())
+    {
+        return false;
+    }
+
+    // 保持原版 FlowCV 的 .flow 后缀。
+    if (!filePath.endsWith(
+        QStringLiteral(".flow"),
+        Qt::CaseInsensitive))
+    {
+        filePath += QStringLiteral(".flow");
+    }
+
+    return saveProjectToFile(filePath);
+}
+
+
+// =============================================================
+// load Project File: 实现项目加载，先停止自动执行，再恢复节点、连接和画布
+// =============================================================
+bool MainWindow::loadProjectFromFile(
+    const QString& filePath)
+{
+    using nlohmann::json;
+
+    json state;
+
+    // ---------------------------------------------------------
+    // 1. 读取 JSON 文件。
+    // ---------------------------------------------------------
+    try
+    {
+        QFile file(filePath);
+
+        if (!file.open(QIODevice::ReadOnly))
+        {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("Open Failed"),
+                QStringLiteral(
+                    "Unable to open project file:\n%1\n\n%2")
+                .arg(filePath, file.errorString()));
+
+            return false;
+        }
+
+        const QByteArray data = file.readAll();
+
+        state = json::parse(
+            data.constBegin(),
+            data.constEnd());
+
+        // 与 Manager 的状态格式保持一致。
+        if (!state.is_object())
+        {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("Open Failed"),
+                QStringLiteral(
+                    "Invalid FlowCV project format."));
+
+            return false;
+        }
+
+        // 基本结构检查应在清空现有图之前完成。
+        if ((state.contains("nodes") &&
+            !state["nodes"].is_null() &&
+            !state["nodes"].is_array()) ||
+            (state.contains("connections") &&
+                !state["connections"].is_null() &&
+                !state["connections"].is_array()) ||
+            (state.contains("editor") &&
+                !state["editor"].is_null() &&
+                !state["editor"].is_array()))
+        {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("Open Failed"),
+                QStringLiteral(
+                    "Invalid project state structure."));
+
+            return false;
+        }
+    }
+    catch (const std::exception& e)
+    {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("Open Failed"),
+            QStringLiteral(
+                "Unable to read project:\n%1")
+            .arg(QString::fromUtf8(e.what())));
+
+        return false;
+    }
+
+    // ---------------------------------------------------------
+    // 2. 停止 DSPatch 自动执行。
+    // ---------------------------------------------------------
+    manager_.StopAutoTick();
+
+    bool managerLoaded = false;
+    bool editorLoaded = false;
+
+    QString restoreError;
+
+    // ---------------------------------------------------------
+    // 3. 恢复 Manager 和 Editor。
+    // ---------------------------------------------------------
+    try
+    {
+        // 恢复节点、参数和连接。
+        managerLoaded = manager_.SetState(state);
+
+        // 根据 Manager 中实际存在的节点重建画布，
+        // 随后恢复 editor 节点位置。
+        editorLoaded =
+            editor_->restoreFromManager(state);
+    }
+    catch (const std::exception& e)
+    {
+        restoreError = QString::fromUtf8(e.what());
+
+        // 尝试让画布重新对应 Manager 当前实际状态。
+        try
+        {
+            editor_->restoreFromManager(json::object());
+        }
+        catch (...)
+        {
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 4. 清理旧选中状态，并同步属性与 Viewer Dock。
+    // ---------------------------------------------------------
+    propertyPanel_->setNode(0);
+    propertyPanel_->refresh();
+
+    syncViewerDocks();
+
+    refreshGraphStatistics();
+
+    // ---------------------------------------------------------
+    // 5. 恢复原有自动执行方式。
+    // ---------------------------------------------------------
+    manager_.StartAutoTick();
+
+    // ---------------------------------------------------------
+    // 6. 检查加载结果。
+    // ---------------------------------------------------------
+    if (!managerLoaded || !editorLoaded)
+    {
+        QString message =
+            QStringLiteral(
+                "The project could not be fully restored.\n"
+                "The current graph reflects the nodes that "
+                "FlowCV Manager successfully loaded.");
+
+        if (!restoreError.isEmpty())
+        {
+            message +=
+                QStringLiteral("\n\n%1")
+                .arg(restoreError);
+        }
+
+        QMessageBox::warning(
+            this,
+            QStringLiteral("Open Failed"),
+            message);
+
+        return false;
+    }
+
+    // ---------------------------------------------------------
+    // 7. 加载成功后更新当前文件路径和状态。
+    // ---------------------------------------------------------
+    currentProjectFile_ = filePath;
+
+    updateSavedSnapshot();
+
+    statusBar()->showMessage(
+        QStringLiteral("Project loaded: %1")
+        .arg(filePath),
+        4000);
+
+    return true;
+}
+
+
+// =============================================================
+// New Project: 实现New 和 Open
+// =============================================================
+void MainWindow::newProject()
+{
+    if (!confirmDiscardChanges())
+    {
+        return;
+    }
+
+    manager_.StopAutoTick();
+
+    bool restored = false;
+    QString error;
+
+    try
+    {
+        // 沿用 FlowCV Manager 的 NewState。
+        manager_.NewState();
+
+        // 重建空白 QtNodes 画布。
+        restored = editor_->restoreFromManager(
+            nlohmann::json::object());
+    }
+    catch (const std::exception& e)
+    {
+        error = QString::fromUtf8(e.what());
+    }
+
+    propertyPanel_->setNode(0);
+    propertyPanel_->refresh();
+
+    syncViewerDocks();
+    refreshGraphStatistics();
+
+    manager_.StartAutoTick();
+
+    if (!restored)
+    {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("New Project Failed"),
+            error.isEmpty()
+            ? QStringLiteral(
+                "Unable to reset the editor.")
+            : error);
+
+        return;
+    }
+
+    currentProjectFile_.clear();
+
+    updateSavedSnapshot();
+
+    statusBar()->showMessage(
+        QStringLiteral("New project created"),
+        4000);
+}
+
+void MainWindow::openProject()
+{
+    const QString filePath =
+        QFileDialog::getOpenFileName(
+            this,
+            QStringLiteral("Open Flow Project"),
+            QString(),
+            QStringLiteral(
+                "FlowCV Project (*.flow)"));
+
+    if (filePath.isEmpty())
+    {
+        return;
+    }
+
+    // 用户选择文件后，再确认是否丢弃当前修改。
+    if (!confirmDiscardChanges())
+    {
+        return;
+    }
+
+    loadProjectFromFile(filePath);
+}
+
+
+
+// =============================================================
 // Menus And Toolbar
 // =============================================================
 void MainWindow::setupMenusAndToolbar()
@@ -956,10 +1639,69 @@ void MainWindow::setupMenusAndToolbar()
     // ---------------------------------------------------------
     // File
     // ---------------------------------------------------------
-    QMenu* fileMenu =
-        menuBar()->addMenu(
-            QStringLiteral("&File"));
+    QMenu* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
 
+    // New
+    QAction* newAction = fileMenu->addAction(QStringLiteral("&New"));
+
+    newAction->setShortcut(QKeySequence::New);
+
+    QObject::connect(newAction, &QAction::triggered, this, &MainWindow::newProject);
+
+    // Open
+    QAction* openAction = fileMenu->addAction(QStringLiteral("&Open..."));
+
+    // 与原版 FlowCV 的 Ctrl+L 保持一致。
+    // 同时支持常见的 Ctrl+O。
+    openAction->setShortcuts({
+        QKeySequence::Open,
+        QKeySequence(QStringLiteral("Ctrl+L"))
+        });
+
+    QObject::connect(
+        openAction,
+        &QAction::triggered,
+        this,
+        &MainWindow::openProject);
+
+    fileMenu->addSeparator();
+
+    // Save
+    QAction* saveAction =
+        fileMenu->addAction(
+            QStringLiteral("&Save"));
+
+    saveAction->setShortcut(QKeySequence::Save);
+
+    QObject::connect(
+        saveAction,
+        &QAction::triggered,
+        this,
+        [this]()
+        {
+            saveProject();
+        });
+
+    // Save As
+    QAction* saveAsAction =
+        fileMenu->addAction(
+            QStringLiteral("Save &As..."));
+
+    saveAsAction->setShortcut(
+        QKeySequence::SaveAs);
+
+    QObject::connect(
+        saveAsAction,
+        &QAction::triggered,
+        this,
+        [this]()
+        {
+            saveProjectAs();
+        });
+
+    fileMenu->addSeparator();
+
+    // Exit
     QAction* quit =
         fileMenu->addAction(
             QStringLiteral("E&xit"));
@@ -1027,7 +1769,7 @@ void MainWindow::setupMenusAndToolbar()
     viewMenu->addAction(
         propertyDock_->toggleViewAction());
 
-    // 每个 Viewer 都通过自己的 toggleViewAction
+    // 每个 Viewer 都通过独立的 toggleViewAction
     // 控制显示和隐藏。
     viewerWindowsMenu_ =
         viewMenu->addMenu(
@@ -1044,6 +1786,7 @@ void MainWindow::setupMenusAndToolbar()
     viewMenu->addSeparator();
 
 
+    // Fit All
     QAction* fit =
         viewMenu->addAction(
             QStringLiteral("Fit All Nodes"));
@@ -1055,6 +1798,7 @@ void MainWindow::setupMenusAndToolbar()
         &VisionFlowEditor::zoomFitAll);
 
 
+    // Reset Zoom
     QAction* resetZoom =
         viewMenu->addAction(
             QStringLiteral("Reset Zoom"));
@@ -1065,10 +1809,10 @@ void MainWindow::setupMenusAndToolbar()
         editor_,
         &VisionFlowEditor::resetZoom);
 
-
     viewMenu->addSeparator();
 
 
+    // Reset Layout
     QAction* resetLayout =
         viewMenu->addAction(
             QStringLiteral("Reset Layout"));
@@ -1111,11 +1855,13 @@ void MainWindow::setupMenusAndToolbar()
         addButton);
 
 
+    // Delete
     graphToolBar_->addAction(
         editor_->deleteSelectionAction());
 
     graphToolBar_->addSeparator();
 
+    // Zoom
     graphToolBar_->addAction(fit);
     graphToolBar_->addAction(resetZoom);
 }

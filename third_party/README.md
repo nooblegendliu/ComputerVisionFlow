@@ -1,38 +1,80 @@
 # 第三方依赖
 
-本目录负责 spdlog、nlohmann_json 查找与 QtNodes 构建；DSPatch 由 `sdk/thirdParty` 管理。本文统一记录项目依赖的来源与配置。spdlog 和 nlohmann_json 使用本机 vcpkg 经典模式；DSPatch 使用按 FlowCV 定制版 7.0.1 整理的头文件与实现源码，QtNodes 使用固定提交的源码快照。Qt 由顶层在启用 Studio 时查找，保证编辑器和应用所在目录均能使用 Qt 的 CMake 配置。配置过程不自动下载、安装或升级依赖，不提供 `vcpkg.json`。
+本文记录依赖来源、构建配置和运行时部署边界。项目入口见[README](../README.md)，模块职责见[架构说明](../docs/architecture.md)，当前能力与待开发事项见[开发状态](../docs/development-status.md)。
 
-| 依赖 | 来源 | 版本 | 许可证 | 使用目标 |
-| --- | --- | --- | --- | --- |
-| spdlog | vcpkg 官方端口，<https://github.com/gabime/spdlog> | 1.17.0 | MIT | `spdlog::spdlog` |
-| nlohmann_json | vcpkg 官方端口，<https://github.com/nlohmann/json> | 本机 x64 已安装 3.12.0，未锁定版本 | MIT | `nlohmann_json::nlohmann_json` |
-| DSPatch | FlowCV 中的定制版本，<https://github.com/FlowCV-org/FlowCV> | 参考 7.0.1，FlowCV 提交 `b09c48edcc9437253da6049365d319fe036eff61`；核心源码已补齐 | 对应源码保留原有 BSD-2-Clause 声明 | `VisionFlow::DSPatch`（静态库别名） |
-| QtNodes | <https://github.com/paceholder/nodeeditor> | 3.0.16，`7c6341a66a8e46b8988140b9e60d892b6a3560b3` | BSD-3-Clause | `QtNodes::QtNodes` |
-| Qt | 本机 Qt SDK | 6.11.1，MSVC 2022 x64 套件 | 以所安装 Qt SDK 的许可证为准 | `Qt6::Core/Gui/Widgets/OpenGL` |
+## 来源、版本与许可
 
-spdlog、nlohmann_json 与 Qt 的实际版本由本机安装状态决定，QtNodes 的源码版本已固定，DSPatch 为本地整理版本，保留文件命名与注释调整，并非逐字一致的原始快照。共享隐藏预设通过 `VCPKG_ROOT` 找到工具链，不写入本机绝对路径。当前个人预设仅构建 x64 Release，与已有 Qt SDK 和 Release OpenCV 匹配。
+| 依赖 | 来源与版本管理 | 许可证 |
+| --- | --- | --- |
+| spdlog | [上游](https://github.com/gabime/spdlog)，通过本机 vcpkg classic 安装；当前包配置声明 1.17.0，项目未锁定版本 | MIT |
+| nlohmann_json | [上游](https://github.com/nlohmann/json)，通过本机 vcpkg classic 安装；当前包配置声明 3.12.0，项目未锁定版本 | MIT |
+| OpenCV | [上游](https://github.com/opencv/opencv)，使用本机预先构建的 MSVC x64 包，要求 `core` 组件；当前包配置声明 4.14.0，项目未锁定版本 | 当前安装包主许可证为 Apache-2.0，随包第三方组件保留各自许可 |
+| DSPatch | 从 [FlowCV](https://github.com/FlowCV-org/FlowCV) 定制版 7.0.1 整理，参考提交 `b09c48edcc9437253da6049365d319fe036eff61`；源码位于 `../sdk/thirdParty/dspatch/` | 对应文件保留 BSD-2-Clause 声明 |
+| QtNodes | [nodeeditor](https://github.com/paceholder/nodeeditor) 3.0.16 源码快照，固定提交 `7c6341a66a8e46b8988140b9e60d892b6a3560b3`，位于 `nodeeditor/` | BSD-3-Clause，见[许可证](nodeeditor/LICENSE.rst) |
+| Qt | 本机 Qt SDK，当前个人配置使用 Qt 6.11.1 MSVC 2022 x64 套件；项目查找 Qt 6，未锁定小版本 | 以所安装 SDK 及其模块的许可证为准 |
 
-`CMakeLists.txt` 使用 `find_package(spdlog CONFIG REQUIRED GLOBAL)`，使导入目标可被同级模块消费。Utils 的 Logging 功能以 `PUBLIC` 方式链接该目标，将公开头文件需要的编译与链接要求传播给消费者。spdlog 的包配置负责查找和传递 fmt，不手工添加 fmt 路径或库名。保留 vcpkg 默认的运行时依赖复制行为。
+本机包版本是当前环境事实，不是其他机器的版本约束；以包配置文件和实际安装内容为准，不根据目录名称推断版本。CMake 配置不会自动下载、安装或升级依赖，仓库没有 `vcpkg.json`。引入或修改外部源码时，应保留来源、版本、许可及本地改动说明。
 
-JSON 通过无条件的 `find_package(nlohmann_json CONFIG REQUIRED GLOBAL)` 查找，Studio OFF 同样需要它。Sdk 以 `PUBLIC` 链接 `nlohmann_json::nlohmann_json`，因为公开头文件 `flowProperties.h` 包含 `<nlohmann/json.hpp>`；下游无需手工添加包含路径。JSON 是头文件库，不新增二进制库构建，不使用 FetchContent 或另一份源码副本。本机 x64 已有 3.12.0；其他机器需先安装对应依赖：
+## 构建要求与依赖传播
 
-```powershell
-& "$env:VCPKG_ROOT/vcpkg.exe" install nlohmann-json:x64-windows
+当前共享配置以 Windows、MSVC x64、Ninja、Release 为基线，要求 CMake 3.25 及以上、C++20，以及兼容的 OpenCV 与 Qt 二进制包。在已初始化 MSVC x64 和 Visual Studio 环境变量的开发者 PowerShell 中配置；共享预设还使用 `VSINSTALLDIR` 定位 Visual Studio 的 SegmentHeap CMake 脚本。
+
+`third_party/CMakeLists.txt` 无条件查找 `spdlog` 和 `nlohmann_json`，均使用 `CONFIG REQUIRED GLOBAL`，让同级模块能访问导入目标。`VisionFlow::Utils` 的日志公开头文件使用 spdlog，因此以 `PUBLIC` 链接 `spdlog::spdlog`；fmt 由 spdlog 包配置传递，无需手写包含路径或库名。`VisionFlow::Sdk` 以 `PUBLIC` 链接 `VisionFlow::DSPatch` 和 `nlohmann_json::nlohmann_json`，后者供 `flowProperties.h` 等公开头文件使用。
+
+`nodes/CMakeLists.txt` 无条件执行 `find_package(OpenCV CONFIG REQUIRED COMPONENTS core)`，节点库公开链接 `opencv_core`。`VisionFlow::Managers` 公开链接 Sdk，私有链接 Nodes 和 Utils。`VisionFlow::Editor` 公开链接 Managers、`QtNodes::QtNodes` 和 `Qt6::Widgets`，私有链接 Sdk 和 `Qt6::Core`；其公开头文件涉及的 QtNodes、Qt 与 Manager 使用要求由 CMake 传播。完整目标关系以[架构说明](../docs/architecture.md)为准。
+
+启用 `VISIONFLOW_BUILD_STUDIO`（默认 `ON`）时，顶层查找 Qt 6 的 `Core`、`Gui`、`Widgets`、`OpenGL`，构建 QtNodes、Editor 和 Qt Widgets 程序 VisionFlowStudio。关闭后不查找 Qt、不进入 QtNodes、不生成 Editor 或 Studio，只构建库；spdlog、JSON、OpenCV 和 DSPatch 仍是库构建所需依赖。
+
+Debug 未被全局禁止。MSVC Debug 使用 `/MDd`，Release 使用 `/MD`；节点 CMake 会检查 OpenCV 的 Debug 导入库，缺少时明确报错，不将 Release OpenCV 静默用于 Debug。当前个人预设选择 Release，以匹配现有运行库和部署设置。
+
+## 源码依赖边界
+
+DSPatch 由 `sdk/thirdParty/CMakeLists.txt` 查找 Threads 并引入，构建静态库 `visionflow_dspatch`，别名为 `VisionFlow::DSPatch`。其 CMake 显式登记 8 个实现文件及公共、内部头文件，公共 `include` 使用 `SYSTEM PUBLIC`，内部 `source` 使用 `PRIVATE`，私有链接 `Threads::Threads` 和 `${CMAKE_DL_LIBS}`；MSVC 私有启用 `/utf-8`。DSPatch 不依赖 Qt，也不执行上游安装、测试、教程或 DLL 构建脚本。
+
+本地 DSPatch 保留 `ComponentTypes.h` 文件名、`source` 目录和学习注释，不是逐字一致的原始快照；不包含 fast_any。`DSPatchVersion.h` 声明 7.0.1，保留原有条件 manifest 块，不额外生成版本文件，不定义 `ADD_DSPATCH_DEPENDENCY`。内部目录不会经 Sdk 或 Managers 向消费者传播。
+
+QtNodes 仅在 Studio 开启时构建。在局部变量作用域内启用 `USE_QT6`、关闭 `BUILD_SHARED_LIBS`，并关闭开发者默认选项、示例、测试、文档和调试后缀；`CMAKE_POLICY_DEFAULT_CMP0077=NEW` 让上游选项遵循这些局部设置。其通用 `QT` 包查找通过 `QT_DIR=${Qt6_DIR}` 复用顶层找到的 Qt。当前不需要 Catch2，MOC/RCC 由 QtNodes 自身的 CMake 处理，Editor 单独启用 AUTOMOC。QtNodes 静态构建不等于 Qt 静态链接，当前 Qt SDK 使用动态库。
+
+## 共享预设与个人配置
+
+跟踪的 `CMakePresets.json` 包含两个隐藏预设：`windows-base` 提供 Windows x64 Release、Ninja、`x64-windows` triplet 和 vcpkg classic 工具链；`Qt` 通过环境变量 `QTDIR` 设置 `CMAKE_PREFIX_PATH`，属于 Qt 工具生成的辅助配置。这两个隐藏项不能直接作为配置入口，也不写入本机安装目录。
+
+被 Git 忽略的 `CMakeUserPresets.json` 保存个人入口。当前唯一可直接使用的配置预设和构建预设均名为 `local-x64-release`；配置同时继承 `windows-base` 与 `Qt-Default`，后者经 `6.11.1_msvc2022_64` 继承共享的 `Qt`。`Qt-Default` 和具体套件项均为隐藏的本机 Qt 辅助项，套件路径与 `VCPKG_ROOT`、`Qt6_ROOT`、`OpenCV_DIR` 留在个人配置中，不应固化到共享 CMake。生成目录为 `out/build/local-x64-release`。
+
+其他机器可自行创建最小个人预设，替换以下占位路径；示例仅展示所需字段，不修改任何配置文件，也不要求复制本机 Qt 辅助项：
+
+```json
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "local-x64-release",
+      "inherits": "windows-base",
+      "environment": {
+        "VCPKG_ROOT": "C:/path/to/vcpkg"
+      },
+      "cacheVariables": {
+        "Qt6_ROOT": "C:/path/to/Qt/msvc2022_64",
+        "OpenCV_DIR": "C:/path/to/OpenCV/cmake-package"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "local-x64-release",
+      "configurePreset": "local-x64-release"
+    }
+  ]
+}
 ```
 
-## 源码快照与构建边界
+`Qt6_ROOT` 指向 Qt MSVC x64 套件根目录，`OpenCV_DIR` 指向包含 `OpenCVConfig.cmake` 的包目录，`VCPKG_ROOT` 指向已安装所需端口的 vcpkg。先准备 OpenCV、Qt 和 vcpkg；需要安装 vcpkg 端口时，先在当前 PowerShell 设置 `VCPKG_ROOT`，再执行：
 
-`../sdk/thirdParty/dspatch/` 包含 FlowCV 定制版 7.0.1 的核心公共头文件、8 个实现文件及4 个内部头文件，不包含 fast_any。参考 FlowCV 提交为 `b09c48edcc9437253da6049365d319fe036eff61`。本地保留 `ComponentTypes.h` 文件名、`source` 目录和学习注释；已有版权与许可声明按对应原文件恢复。`DSPatchVersion.h` 固定声明 7.0.1 并保留原版条件 manifest 块，不额外生成文件，也不定义 `ADD_DSPATCH_DEPENDENCY`。`nodeeditor/` 继续保留上述固定提交的源码与许可证。
+```powershell
+& "$env:VCPKG_ROOT/vcpkg.exe" install spdlog:x64-windows nlohmann-json:x64-windows
+```
 
-Sdk 内部第三方入口查找 Threads，并通过 `add_subdirectory(dspatch)` 引入静态库 `visionflow_dspatch`，别名为 `VisionFlow::DSPatch`。子目录显式登记源码与头文件，`include` 使用 `SYSTEM PUBLIC`，`source` 使用 `PRIVATE`。目标使用 C++20，私有链接 `Threads::Threads` 与 `${CMAKE_DL_LIBS}`；MSVC 私有启用 `/utf-8`，保持默认 Debug `/MDd`、Release `/MD`。VisionFlowSdk PUBLIC 链接该目标，消费者链接 VisionFlow::Sdk 即可获得 DSPatch 公共使用要求；Managers 私有链接 Sdk，不再重复直接链接 DSPatch，内部 source 路径不向消费者传播。DSPatch 不链接 Qt，不修改其原有导出宏、插件加载或调度逻辑，不执行上游的安装、测试、教程或 DLL 构建脚本。
-
-QtNodes 仅在 `VISIONFLOW_BUILD_STUDIO=ON` 时作为子目录构建。局部变量作用域内设置 `USE_QT6=ON`、`BUILD_SHARED_LIBS=OFF`，关闭 `QT_NODES_DEVELOPER_DEFAULTS`、`BUILD_EXAMPLES`、`BUILD_TESTING`、`BUILD_DOCS` 和调试后缀。`CMAKE_POLICY_DEFAULT_CMP0077=NEW` 使上游选项遵循局部值，不通过全局缓存强制覆盖其他模块设置。上游先查找通用包名 `QT`，该查找不使用 `Qt6_ROOT`，因此局部设置 `QT_DIR=${Qt6_DIR}`，复用顶层已找到的 Qt。无需 Catch2；MOC/RCC 由 QtNodes 自身的 CMake 处理。Editor 私有链接 `QtNodes::QtNodes`。
-
-关闭 Studio 后不查找 Qt、不进入 QtNodes，只构建基础业务库。QtNodes 静态链接不代表 Qt 静态链接；当前 Qt SDK 仍使用动态库，MSVC 运行库保持 Debug `/MDd`、Release `/MD`。
-
-## 本机配置与使用
-
-在 Visual Studio x64 开发者 PowerShell 中使用个人预设。当前被忽略的 `CMakeUserPresets.json` 仅提供 `local-x64-release` 配置预设和同名构建预设，直接继承共享的隐藏预设 `windows-base`，指定本机 Qt、OpenCV 根目录和 vcpkg 环境变量；生成文件继续进入 `out/build/local-x64-release`。隐藏预设只提供 x64 Release 公共参数，不是另一个可选构建版本。
+完成个人配置后使用：
 
 ```powershell
 cmake --list-presets=all
@@ -40,61 +82,8 @@ cmake --preset local-x64-release
 cmake --build --preset local-x64-release
 ```
 
-其他机器需自行建立继承 `windows-base` 的个人预设：`Qt6_ROOT` 指向包含 `bin`、`include`、`lib` 的 Qt MSVC 套件根目录，`OpenCV_DIR` 指向 Release OpenCV 的 CMake 包目录，`VCPKG_ROOT` 指向已安装 spdlog 和 nlohmann-json 的 vcpkg。不要在共享 CMake 中设置绝对路径或全局包含/链接目录。
+## Windows 运行时部署
 
-当前正式程序为无 UI 的 Solid、Add、Viewer 闭环入口，不创建 Qt 窗口。应用构建后会复制所链接的运行时 DLL；本次不增加安装打包逻辑。下方历史验证中的 Debug 预设和旧模块名保留为当时记录，不代表当前可用入口。
+Studio 的 Windows 构建后步骤先通过 `cmake -E copy_if_different` 复制 `$<TARGET_RUNTIME_DLLS:VisionFlowStudio>` 到可执行文件目录，再调用所用 Qt SDK 中的 `windeployqt`。该工具通过 `find_program(... REQUIRED)` 查找，参数固定为 `--release --no-translations --no-compiler-runtime`，用于部署 Qt 库和包括 `platforms/qwindows.dll` 在内的插件。缺少 windeployqt 会使配置失败。
 
-## 历史变更（2026-09-20，Managers 迁移与 JSON 接入）
-
-- Managers 替代 Engine 构建目标，三个管理器的六个文件仅为空占位，不包含业务实现。
-- SDK PUBLIC 链接 nlohmann_json，头文件使用标准包含路径；配置阶段复用本机 vcpkg 包。
-- 本次仅静态审阅，未执行配置、编译、应用或测试，未删除缓存。重新配置 CMake 后 IDE 才能读取更新的依赖路径。
-- 下方历史结果保留原有模块名和验证结论，不代表当前修改已经验证。
-
-## 历史验证（2026-09-18，Logging 迁移至 Utils）
-
-- Logging 位于 `Utils/logging`，编入独立静态库 `VisionFlowUtils`，别名 `VisionFlow::Utils`；日志头文件与实现迁移前后 SHA256 一致。
-- x64 Debug、Release 及既有 Studio OFF 构建目录均重新配置、编译通过，产物为 `Utils/VisionFlowUtils.lib`；每套规则仅编译一次 logger.cpp。
-- Sdk 和 Engine 编译规则不再携带 spdlog 使用要求或 Utils 路径；Utils 获得 spdlog 和私有 `/utf-8`，Studio 通过私有链接 Utils 获得日志公共包含路径。Studio OFF 不生成 QtNodes、Editor 或 Studio。
-- 本次不运行应用或日志初始化，不添加调用测试，不产生运行日志。配置和编译记录保存在各构建目录的 `utils-configure.log`、`utils-build.log`。
-- 以下为迁移前的历史验证，依赖边界以本节及当前架构说明为准。
-
-## 历史验证（2026-09-18，Logging 迁移前的 Sdk 结构）
-
-- `local-x64-debug`、`local-x64-release` 重新配置与构建通过，生成 `sdk/VisionFlowSdk.lib` 和 `sdk/thirdParty/dspatch/visionflow_dspatch.lib`。
-- 复用既有 `out/build/local-x64-core-only` 目录验证 Studio OFF（目录名保留历史名称）：Sdk、Engine、DSPatch 构建通过，不查找 Qt，不生成 QtNodes、Editor 或 Studio。
-- 三套生成规则均登记 8 个 DSPatch 实现文件；Engine 经由 Sdk 获得 DSPatch 公共 include 路径，不获得内部 source 路径，生成规则不再引用旧 Core 目标或 DSPatch 源码路径。
-- DSPatch 目录全部 22 个文件迁移前后 SHA256 一致。应用入口、个人预设和 QtNodes 未修改，未新增调用程序，未运行应用或测试。
-- 本次配置和编译日志为上述构建目录中的 `sdk-configure.log`、`sdk-build.log`。以下记录属于迁移前验证，旧路径仅用于说明历史状态。
-
-## 历史验证（2026-09-18，Sdk 迁移前静态库接入）
-
-- `local-x64-debug`、`local-x64-release` 均配置和构建通过；8 个 DSPatch 实现文件全部参与编译，生成 `third_party/dspatch/visionflow_dspatch.lib`。
-- `local-x64-core-only` 使用 Debug 个人预设并设置 `VISIONFLOW_BUILD_STUDIO=OFF`、`CMAKE_DISABLE_FIND_PACKAGE_Qt6=TRUE`，配置和构建通过；生成 DSPatch、Core、Engine，不生成 QtNodes、Editor 或 Studio。
-- 核对生成的编译规则：DSPatch 使用公开 `include`、私有 `source`、C++20 和 `/utf-8`；Engine 不包含 DSPatch 的内部 `source` 路径。Debug/Release 保持 `/MDd`、`/MD`。
-- 对照参考源码，8 个实现文件及4 个内部头文件的代码逻辑保持一致，差异限于注释、排版及等价的同目录包含方式。
-- 本次只验证配置与编译，没有添加调用示例或探针工程，没有运行应用、串行数据传递、并行调度或插件加载测试。构建成功不代表这些运行行为已验证。
-- 配置和构建日志保存在上述 `out/build` 目录的 `configure.log`、`build.log` 中。
-
-## 历史验证（2026-09-17，旧版抄写阶段）
-
-- 修正 `Signal::GetValue()` 的成员名笔误和现有 `Circuit::AddComponent()` 声明缺少分号的问题，未补写其他接口或实现源码。
-- 临时程序包含 `DSPatch.h`，实际实例化 `Signal::GetValue<int>()`；MSVC C++20 Debug `/MDd` 与 Release `/MD` 仅编译检查均通过，没有执行 DSPatch 链接或运行验证。
-- 现有 `local-x64-debug`、`local-x64-release` 预设配置与占位工程构建通过；本次不修改应用入口、QtNodes 或个人预设。
-- 独立构建目录设置 `VISIONFLOW_BUILD_STUDIO=OFF`、`CMAKE_DISABLE_FIND_PACKAGE_Qt6=TRUE` 后 Core/Engine 构建通过，生成文件不包含 QtNodes、Editor 或 Studio 目标。首次沙箱内 ABI 探测停滞，终止后在沙箱外重新配置验证通过。
-- 临时编译程序、检查脚本与日志位于 `out/validation/dspatch-minimal-fix/`。当时 DSPatch 尚缺实现源码，以上历史结果不代表当前静态库的运行验证。
-
-## 历史验证（2026-09-16，新版快照）
-
-以下结果属于此前的新版 DSPatch 快照及临时补丁，不适用于当前 FlowCV 旧版静态库。
-
-- x64 Debug/Release 的主工程及 QtNodes 静态库构建通过，正式程序仍输出 `VisionFlowStudio`。
-- 关闭 Studio 并禁用 Qt6 查找后，Core、Engine 构建通过，不生成 QtNodes、Editor 或 Studio 目标。
-- **DSPatch 原始快照的实际 API 编译未通过**：MSVC 19.51 拒绝 `Component.h` 的 `std::atomic_flag flag = { true }`（C2665）；Qt 的 `UNICODE` 编译定义使 `Plugin.h` 的 `LoadLibrary(std::string::c_str())` 参数类型不匹配（C2664）。主工程中的占位 Engine 尚未包含该头文件，因此主工程构建成功不能替代 API 验证。
-- 兼容性修正目前只在 `out/validation/dspatch-compat/` 临时副本中验证，当时的正式上游快照未修改。当前已切换为旧版静态库，不继续应用这些新版补丁。
-- 临时修正使用标准原子标记初始化，并在普通/移动构造时恢复原有初始等待状态；Windows 插件加载显式使用 `LoadLibraryA`。该副本的 Debug/Release 串行数据传递、分发、缺失插件处理及 QtNodes 模型保存/加载已通过。额外的 Debug 并行探测出现停滞并被终止，未完成原因定位；这些结果不代表多线程调度或完整插件功能已验证。
-- 临时验证工程及日志位于 `out/validation/dependency-smoke/`、`out/validation/dependency-logs/`。完整验证脚本显式清除临时头文件覆盖选项，避免将候选补丁结果误认为原始源码已通过。
-
-上述历史临时验证文件及日志已随用户要求清空 `out`，所列路径仅作历史记录，本次不重新创建探针工程。
-
-引入依赖时记录来源、验证版本、版本管理方式和许可证；修改过的外部源码应记录上游版本与本地补丁。不在 SDK 中复制另一份依赖实现。
+当前没有面向 VisionFlowStudio 的安装包或应用安装规则；构建后复制 DLL 不等同于完整安装分发。QtNodes 上游自带的安装声明不承担 Studio 打包。虽然项目允许满足依赖条件的 Debug 构建，windeployqt 仍固定部署 Release，因此 Debug 的部署尚未随构建配置切换。历史临时探针与旧构建目录的结果不作为当前运行验证；最新能力与验证范围统一记录在[开发状态](../docs/development-status.md)。

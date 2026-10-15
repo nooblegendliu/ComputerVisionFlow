@@ -10,6 +10,12 @@ add_executable(VisionFlowStudio
     
     ViewerPanel.h 
     ViewerPanel.cpp
+
+    resources/studio.qrc
+)
+
+set_target_properties(VisionFlowStudio PROPERTIES
+    AUTORCC ON
 )
 
 target_include_directories(VisionFlowStudio 
