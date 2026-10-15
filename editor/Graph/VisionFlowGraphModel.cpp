@@ -497,7 +497,7 @@ QVariant VisionFlowGraphModel::nodeData(
         return true;
 
     case QtNodes::NodeRole::Caption:
-        return QStringLiteral("%1 [%2]")
+        return QStringLiteral("%1_%2")
             .arg(QString::fromStdString(info.desc.name))
             .arg(info.node_ptr->GetInstanceCount());
 

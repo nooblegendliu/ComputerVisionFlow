@@ -1,43 +1,79 @@
+
 #pragma once
 
-#include <QtWidgets/QMainWindow> 
+#include <QtWidgets/QMainWindow>
 
 namespace FlowCV
 {
-	class FlowCV_Manager;
+    class FlowCV_Manager;
+}
 
-}	// namespace FlowCV
-
+class QAction;
+class QCloseEvent;
+class QDockWidget;
 class QLabel;
 class QListWidget;
+class QToolBar;
+
 class VisionFlowEditor;
 class PropertyPanel;
 
-// 仅负责组合现有管理器与编辑器UI，不创建第二套运行图
+
+// 负责组合 Qt UI、管理 Dock 布局及窗口设置。
+// 不管理 DSPatch 运行图和节点计算。
 class MainWindow final : public QMainWindow
 {
 public:
-	explicit MainWindow(FlowCV::FlowCV_Manager& manager, QWidget* parent = nullptr);
+    explicit MainWindow(
+        FlowCV::FlowCV_Manager& manager,
+        QWidget* parent = nullptr);
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
-	void setupWindow();
-	void setupMenusAndToolbar();
-	void setupNodeList();
+    // Main Window
+    void setupWindow();
+    void setupAppearance();
+    void setupMenusAndToolbar();
 
-	// 阶段C：属性面板
-	void setupPropertyPanel();
+    // Dock Panels
+    void setupNodeList();
+    void setupPropertyPanel();
+    void setupViewerPlaceholder();
 
-	void refreshGraphStatistics();
+    // Dock Layout
+    void setupDockLayout();
+    void resetDockLayout();
+
+    // Window Settings
+    void restoreWindowLayout();
+    void saveWindowLayout() const;
+
+    // Status Bar
+    void refreshGraphStatistics();
 
 private:
-	FlowCV::FlowCV_Manager& manager_;
+    FlowCV::FlowCV_Manager& manager_;
 
-	VisionFlowEditor* editor_ = nullptr;
+    // Editor
+    VisionFlowEditor* editor_ = nullptr;
+    QDockWidget* editorDock_ = nullptr;
 
-	QListWidget* nodeList_ = nullptr;
+    // Node Library
+    QListWidget* nodeList_ = nullptr;
+    QDockWidget* nodeLibraryDock_ = nullptr;
 
-	QLabel* statistics_ = nullptr;
+    // Properties
+    PropertyPanel* propertyPanel_ = nullptr;
+    QDockWidget* propertyDock_ = nullptr;
 
-	// 阶段C：属性面板
-	PropertyPanel* propertyPanel_ = nullptr;
+    // Viewer Placeholder
+    QDockWidget* viewerDock_ = nullptr;
+
+    // Toolbar
+    QToolBar* graphToolBar_ = nullptr;
+
+    // Status Bar
+    QLabel* statistics_ = nullptr;
 };

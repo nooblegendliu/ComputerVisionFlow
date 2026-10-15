@@ -3,8 +3,11 @@
 #include <flowcv_manager.h>
 #include <flowProperties.h>
 
+#include <utility>
 #include <variant>
+
 #include <QtCore/QTimer>
+
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QDoubleSpinBox>
@@ -13,32 +16,30 @@
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QScrollArea>
 #include <QtWidgets/QSpinBox>
+#include <QtWidgets/QToolButton>
 #include <QtWidgets/QVBoxLayout>
 
-// ---------------------------------------
+
+// =============================================================
 // Constructor
-// ---------------------------------------
+// =============================================================
 PropertyPanel::PropertyPanel(
-	FlowCV::FlowCV_Manager& manager, QWidget* parent)
-	:QWidget(parent), manager_(manager)
+    FlowCV::FlowCV_Manager& manager,
+    QWidget* parent)
+    : QWidget(parent),
+    manager_(manager)
 {
     auto* layout = new QVBoxLayout(this);
 
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(8);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
-    // 当前选中节点名称
-    title_ = new QLabel(QStringLiteral("Properties"), this);
-
-    title_->setObjectName(QStringLiteral("PropertyPanelTitle"));
-
-    layout->addWidget(title_);
-
-    // 属性较多时允许滚动
     scrollArea_ = new QScrollArea(this);
 
     scrollArea_->setWidgetResizable(true);
-    scrollArea_->setFrameShape(QFrame::NoFrame);
+
+    scrollArea_->setFrameShape(
+        QFrame::NoFrame);
 
     layout->addWidget(scrollArea_);
 
@@ -46,119 +47,351 @@ PropertyPanel::PropertyPanel(
 }
 
 
-
-// --------------------------------------------------------
+// =============================================================
 // Selected Node
-// --------------------------------------------------------
+// =============================================================
 void PropertyPanel::setNode(std::uint64_t nodeId)
 {
-    if (nodeId_ == nodeId)
+    if (selectedNodeId_ == nodeId) {
         return;
+    }
 
-    nodeId_ = nodeId;
+    selectedNodeId_ = nodeId;
 
-    refresh();
+    // 原版选择节点只改变对应标题的高亮。
+    // 不因此重建全部属性控件。
+    updateSelectionStyle();
 }
 
 
-// --------------------------------------------------------
-// Refresh Property UI
-// --------------------------------------------------------
+// =============================================================
+// Refresh All Node Sections
+// =============================================================
 void PropertyPanel::refresh()
 {
-    // 每次从 Manager 取得最新 Snapshot，
-    // 不在面板中缓存另一份属性值。
+    struct NodeData
+    {
+        std::uint64_t id = 0;
+
+        QString title;
+
+        FlowCV::PropertiesSnapshot snapshot;
+    };
+
+    std::vector<NodeData> nodes;
+
+    std::vector<std::uint64_t> newOrder;
+
+    const std::uint64_t nodeCount =
+        manager_.GetNodeCount();
+
+    // ---------------------------------------------------------
+    // 遍历 Manager 中的节点。
+    //
+    // 原版通过 NodeHasUI(Controls) 识别属性窗口；
+    // 当前去除 ImGui 后，通过属性快照判断。
+    // ---------------------------------------------------------
+    for (std::uint64_t i = 0; i < nodeCount; ++i)
+    {
+        FlowCV::NodeInfo info{};
+
+        if (!manager_.GetNodeInfoByIndex(i, info)) {
+            continue;
+        }
+
+        if (!info.node_ptr) {
+            continue;
+        }
+
+        FlowCV::PropertiesSnapshot snapshot{};
+
+        if (!manager_.GetNodePropertiesSnapshot(
+            info.id,
+            snapshot)) {
+            continue;
+        }
+
+        // Viewer 等没有可编辑属性的节点，
+        // 不显示空的 Controls 分组。
+        if (snapshot.properties.empty()) {
+            continue;
+        }
+
+        // 与原版一致：NodeName_InstanceNumber
+        QString title =
+            QStringLiteral("%1_%2")
+            .arg(QString::fromStdString(info.desc.name))
+            .arg(info.node_ptr->GetInstanceCount());
+
+        newOrder.push_back(info.id);
+
+        nodes.push_back({
+            info.id,
+            std::move(title),
+            std::move(snapshot)
+            });
+    }
+
+
+    // ---------------------------------------------------------
+    // 节点列表未改变：
+    // 不重建所有分组。
+    //
+    // 连接创建/删除也会触发 graphChanged，
+    // 不应因此让正在编辑的控件丢失焦点。
+    // ---------------------------------------------------------
+    if (newOrder == nodeOrder_)
+    {
+        for (const auto& node : nodes)
+        {
+            auto it = sections_.find(node.id);
+
+            if (it == sections_.end()) {
+                continue;
+            }
+
+            NodeSection& section = it->second;
+
+            if (section.title != node.title)
+            {
+                section.title = node.title;
+
+                section.header->setText(node.title);
+            }
+
+            // 仅当属性确实更新后重新绘制对应分组。
+            if (section.revision != node.snapshot.revision)
+            {
+                refreshNodeFields(
+                    node.id,
+                    node.snapshot);
+            }
+        }
+
+        updateSelectionStyle();
+
+        return;
+    }
+
+
+    // ---------------------------------------------------------
+    // 节点数量或顺序改变：
+    // 保存各分组原有的折叠状态。
+    // ---------------------------------------------------------
+    std::unordered_map<std::uint64_t, bool> expanded;
+
+    for (const auto& [nodeId, section] : sections_)
+    {
+        if (section.header)
+        {
+            expanded.emplace(
+                nodeId,
+                section.header->isChecked());
+        }
+    }
+
+
+    // ---------------------------------------------------------
+    // 构建新的滚动内容。
+    // ---------------------------------------------------------
     auto* content = new QWidget;
 
-    auto* formLayout = new QFormLayout(content);
+    auto* contentLayout = new QVBoxLayout(content);
 
-    formLayout->setContentsMargins(4, 4, 4, 4);
-    formLayout->setSpacing(8);
+    contentLayout->setContentsMargins(6, 6, 6, 6);
+
+    contentLayout->setSpacing(6);
+
+
+    std::unordered_map<std::uint64_t, NodeSection>
+        newSections;
+
+
+    // ---------------------------------------------------------
+    // 创建每个节点的独立属性分组。
+    // ---------------------------------------------------------
+    for (const auto& node : nodes)
+    {
+        auto* sectionWidget = new QWidget(content);
+
+        auto* sectionLayout =
+            new QVBoxLayout(sectionWidget);
+
+        sectionLayout->setContentsMargins(0, 0, 0, 0);
+        sectionLayout->setSpacing(0);
+
+
+        // -----------------------------------------------------
+        // Collapsing Header
+        // -----------------------------------------------------
+        auto* header = new QToolButton(sectionWidget);
+
+        header->setText(node.title);
+
+        header->setCheckable(true);
+
+        header->setToolButtonStyle(
+            Qt::ToolButtonTextBesideIcon);
+
+        header->setSizePolicy(
+            QSizePolicy::Expanding,
+            QSizePolicy::Preferred);
+
+
+        // 新节点默认展开，与原版 DefaultOpen 对应。
+        bool isExpanded = true;
+
+        auto expandedIt = expanded.find(node.id);
+
+        if (expandedIt != expanded.end())
+        {
+            isExpanded = expandedIt->second;
+        }
+
+        header->setChecked(isExpanded);
+
+        header->setArrowType(
+            isExpanded
+            ? Qt::DownArrow
+            : Qt::RightArrow);
+
+
+        // -----------------------------------------------------
+        // Property Fields
+        // -----------------------------------------------------
+        QWidget* fields = createPropertyFields(
+            node.id,
+            node.snapshot,
+            sectionWidget);
+
+        fields->setVisible(isExpanded);
+
+
+        sectionLayout->addWidget(header);
+        sectionLayout->addWidget(fields);
+
+        contentLayout->addWidget(sectionWidget);
+
+
+        newSections.emplace(
+            node.id,
+            NodeSection{
+                node.title,
+                header,
+                fields,
+                sectionLayout,
+                node.snapshot.revision
+            });
+
+
+        // -----------------------------------------------------
+        // 独立展开/折叠
+        // -----------------------------------------------------
+        QObject::connect(
+            header,
+            &QToolButton::toggled,
+            this,
+            [this, nodeId = node.id](bool checked)
+            {
+                auto it = sections_.find(nodeId);
+
+                if (it == sections_.end()) {
+                    return;
+                }
+
+                NodeSection& section = it->second;
+
+                section.header->setArrowType(
+                    checked
+                    ? Qt::DownArrow
+                    : Qt::RightArrow);
+
+                section.fields->setVisible(checked);
+            });
+    }
+
+
+    // ---------------------------------------------------------
+    // 没有可编辑节点时的提示。
+    // ---------------------------------------------------------
+    if (nodes.empty())
+    {
+        auto* label = new QLabel(
+            QStringLiteral("No editable nodes"),
+            content);
+
+        label->setAlignment(Qt::AlignCenter);
+
+        contentLayout->addWidget(label);
+    }
+
+    contentLayout->addStretch();
+
+
+    // ---------------------------------------------------------
+    // 替换整个内容。
+    //
+    // QScrollArea 负责销毁旧 content。
+    // Qt 父子关系负责清理旧控件。
+    // ---------------------------------------------------------
+    nodeOrder_ = std::move(newOrder);
+
+    sections_ = std::move(newSections);
+
+    scrollArea_->setWidget(content);
+
+    updateSelectionStyle();
+}
+
+
+// =============================================================
+// Create Property Fields For One Node
+// =============================================================
+QWidget* PropertyPanel::createPropertyFields(
+    std::uint64_t nodeId,
+    const FlowCV::PropertiesSnapshot& snapshot,
+    QWidget* parent)
+{
+    auto* fields = new QWidget(parent);
+
+    auto* formLayout = new QFormLayout(fields);
+
+    formLayout->setContentsMargins(8, 6, 8, 10);
+    formLayout->setSpacing(6);
 
     formLayout->setFieldGrowthPolicy(
         QFormLayout::AllNonFixedFieldsGrow);
 
-    // 没有选中节点
-    if (nodeId_ == 0) {
+    formLayout->setRowWrapPolicy(
+        QFormLayout::WrapLongRows);
 
-        title_->setText(
-            QStringLiteral("Properties"));
-
-        formLayout->addRow(
-            new QLabel(
-                QStringLiteral("Select a node"),
-                content));
-
-        scrollArea_->setWidget(content);
-
-        return;
-    }
-
-    // 获取节点基本信息
-    FlowCV::NodeInfo nodeInfo{};
-
-    if (!manager_.GetNodeInfoById(nodeId_, nodeInfo)) {
-
-        nodeId_ = 0;
-
-        title_->setText(
-            QStringLiteral("Properties"));
-
-        formLayout->addRow(
-            new QLabel(
-                QStringLiteral("Select a node"),
-                content));
-
-        scrollArea_->setWidget(content);
-
-        return;
-    }
-
-    // 使用原 FlowCV 的节点名称
-    title_->setText(
-        QString::fromStdString(nodeInfo.desc.name));
-
-    // 读取节点属性快照
-    FlowCV::PropertiesSnapshot snapshot{};
-
-    if (!manager_.GetNodePropertiesSnapshot(
-        nodeId_, snapshot)) {
-
-        formLayout->addRow(
-            new QLabel(
-                QStringLiteral("No editable properties"),
-                content));
-
-        scrollArea_->setWidget(content);
-
-        return;
-    }
 
     int visibleCount = 0;
 
-    for (const auto& property : snapshot.properties) {
-
-        // 与原版 DrawUi() 一致：
-        // 不可见属性不创建 UI。
+    for (const auto& property : snapshot.properties)
+    {
+        // 使用原有的属性可见性规则。
+        // 由节点 RefreshProperties() 决定。
         if (!property.visible) {
             continue;
         }
 
         QWidget* editor = createPropertyEditor(
-            property, content);
+            nodeId,
+            property,
+            fields);
 
         if (!editor) {
             continue;
         }
 
-        // Bool 直接使用带标签的复选框
         if (property.type ==
-            FlowCV::PropertyDataTypes::kDataTypeBool) {
-
+            FlowCV::PropertyDataTypes::kDataTypeBool)
+        {
             formLayout->addRow(editor);
         }
-        else {
-
+        else
+        {
             formLayout->addRow(
                 QString::fromStdString(property.desc),
                 editor);
@@ -167,33 +400,30 @@ void PropertyPanel::refresh()
         ++visibleCount;
     }
 
-    // Viewer 等节点可能没有可编辑属性
-    if (visibleCount == 0) {
 
+    if (visibleCount == 0)
+    {
         formLayout->addRow(
             new QLabel(
                 QStringLiteral("No editable properties"),
-                content));
+                fields));
     }
 
-    // QScrollArea 接管 content 的所有权，
-    // 替换时删除之前的属性控件。
-    scrollArea_->setWidget(content);
+    return fields;
 }
 
 
-// ---------------------------------------------------------
-// Create Property Editor
-// ---------------------------------------------------------
+// =============================================================
+// Create Qt Editor For Property
+// =============================================================
 QWidget* PropertyPanel::createPropertyEditor(
+    std::uint64_t nodeId,
     const FlowCV::PropertySnapshot& property,
     QWidget* parent)
 {
     using FlowCV::PropertyDataTypes;
 
-    // 属性 key 与 FlowCV 节点 ID 保持原样。
     const std::string key = property.key;
-    const std::uint64_t nodeId = nodeId_;
 
     switch (property.type)
     {
@@ -213,19 +443,21 @@ QWidget* PropertyPanel::createPropertyEditor(
             checkBox,
             &QCheckBox::toggled,
             this,
-            [this, nodeId, key](bool value) {
-
+            [this, nodeId, key](bool value)
+            {
                 manager_.SetNodeProperty(
                     nodeId,
                     key,
                     value);
 
-                // 更新属性可见性，例如 Solid 的 Color / Has Alpha
+                // Color / Has Alpha 等属性可能影响
+                // 其他属性的可见性。
                 queueRefresh(nodeId);
             });
 
         return checkBox;
     }
+
 
     // ---------------------------------------------------------
     // Int -> QSpinBox
@@ -235,15 +467,16 @@ QWidget* PropertyPanel::createPropertyEditor(
         auto* spinBox = new QSpinBox(parent);
 
         if (const auto* range =
-            std::get_if<FlowCV::IntRange>(&property.range)) {
-
+            std::get_if<FlowCV::IntRange>(
+                &property.range))
+        {
             spinBox->setRange(
                 range->min,
                 range->max);
         }
 
-        // IntRange.step 是原版 DragInt 的编辑速度，
-        // 并非整数步长或取整规则。
+        // 原版 IntRange.step 是 DragInt 编辑速度，
+        // 不是数值的量化步长。
         spinBox->setSingleStep(1);
 
         spinBox->setValue(
@@ -251,21 +484,23 @@ QWidget* PropertyPanel::createPropertyEditor(
 
         QObject::connect(
             spinBox,
-            QOverload<int>::of(&QSpinBox::valueChanged),
+            QOverload<int>::of(
+                &QSpinBox::valueChanged),
             this,
-            [this, nodeId, key](int value) {
-
+            [this, nodeId, key](int value)
+            {
                 if (!manager_.SetNodeProperty(
                     nodeId,
                     key,
-                    value)) {
-
+                    value))
+                {
                     queueRefresh(nodeId);
                 }
             });
 
         return spinBox;
     }
+
 
     // ---------------------------------------------------------
     // Float -> QDoubleSpinBox
@@ -274,13 +509,12 @@ QWidget* PropertyPanel::createPropertyEditor(
     {
         auto* spinBox = new QDoubleSpinBox(parent);
 
-        // 保留常用浮点属性的显示精度。
-        // step 只控制 UI 调整幅度，不对值做量化。
         spinBox->setDecimals(6);
 
         if (const auto* range =
-            std::get_if<FlowCV::FloatRange>(&property.range)) {
-
+            std::get_if<FlowCV::FloatRange>(
+                &property.range))
+        {
             spinBox->setRange(
                 static_cast<double>(range->min),
                 static_cast<double>(range->max));
@@ -298,19 +532,20 @@ QWidget* PropertyPanel::createPropertyEditor(
             QOverload<double>::of(
                 &QDoubleSpinBox::valueChanged),
             this,
-            [this, nodeId, key](double value) {
-
+            [this, nodeId, key](double value)
+            {
                 if (!manager_.SetNodeProperty(
                     nodeId,
                     key,
-                    static_cast<float>(value))) {
-
+                    static_cast<float>(value)))
+                {
                     queueRefresh(nodeId);
                 }
             });
 
         return spinBox;
     }
+
 
     // ---------------------------------------------------------
     // Option -> QComboBox
@@ -319,13 +554,12 @@ QWidget* PropertyPanel::createPropertyEditor(
     {
         auto* comboBox = new QComboBox(parent);
 
-        for (const auto& option : property.options) {
-
+        for (const auto& option : property.options)
+        {
             comboBox->addItem(
                 QString::fromStdString(option));
         }
 
-        // FlowCV 的 Option 值使用从 0 开始的索引。
         comboBox->setCurrentIndex(
             std::get<int>(property.value));
 
@@ -334,8 +568,8 @@ QWidget* PropertyPanel::createPropertyEditor(
             QOverload<int>::of(
                 &QComboBox::currentIndexChanged),
             this,
-            [this, nodeId, key](int index) {
-
+            [this, nodeId, key](int index)
+            {
                 if (index < 0) {
                     return;
                 }
@@ -345,15 +579,16 @@ QWidget* PropertyPanel::createPropertyEditor(
                     key,
                     index);
 
-                // Option 也可能控制其他属性的显隐。
+                // Option 属性也可能影响其他参数的显隐。
                 queueRefresh(nodeId);
             });
 
         return comboBox;
     }
 
+
     // ---------------------------------------------------------
-    // Other types
+    // Other Types
     // ---------------------------------------------------------
     case PropertyDataTypes::kDataTypeSeparator:
     case PropertyDataTypes::kDataTypeUndefined:
@@ -363,21 +598,130 @@ QWidget* PropertyPanel::createPropertyEditor(
 }
 
 
+// =============================================================
+// Refresh One Node Fields
+// =============================================================
+void PropertyPanel::refreshNodeFields(
+    std::uint64_t nodeId,
+    const FlowCV::PropertiesSnapshot& snapshot)
+{
+    auto it = sections_.find(nodeId);
 
-// ----------------------------------------------------------
+    if (it == sections_.end()) {
+        return;
+    }
+
+    NodeSection& section = it->second;
+
+    QWidget* oldFields = section.fields;
+
+    // 只重新生成指定节点的属性控件。
+    QWidget* newFields = createPropertyFields(
+        nodeId,
+        snapshot,
+        section.header->parentWidget());
+
+
+    // ---------------------------------------------------------
+    // 替换当前节点的属性区域。
+    // 不影响其他节点的展开状态与编辑控件。
+    // ---------------------------------------------------------
+    section.layout->removeWidget(oldFields);
+
+    oldFields->hide();
+
+    section.layout->insertWidget(
+        1,
+        newFields);
+
+    newFields->setVisible(
+        section.header->isChecked());
+
+    section.fields = newFields;
+
+    section.revision = snapshot.revision;
+
+
+    // 延迟销毁旧控件，避免与当前 Qt 信号处理冲突。
+    oldFields->deleteLater();
+}
+
+
+// =============================================================
 // Deferred Refresh
-// ----------------------------------------------------------
+// =============================================================
 void PropertyPanel::queueRefresh(std::uint64_t nodeId)
 {
     QTimer::singleShot(
         0,
         this,
-        [this, nodeId]() {
-
-            // 节点可能已被删除或选中了其他节点。
-            // 只刷新当前选中节点。
-            if (nodeId_ == nodeId) {
-                refresh();
+        [this, nodeId]()
+        {
+            // 节点删除后，不再操作旧属性区域。
+            if (sections_.find(nodeId) ==
+                sections_.end()) {
+                return;
             }
+
+            FlowCV::PropertiesSnapshot snapshot{};
+
+            if (!manager_.GetNodePropertiesSnapshot(
+                nodeId,
+                snapshot)) {
+                return;
+            }
+
+            refreshNodeFields(
+                nodeId,
+                snapshot);
         });
+}
+
+
+// =============================================================
+// Selected Node Highlight
+// =============================================================
+void PropertyPanel::updateSelectionStyle()
+{
+    for (const auto& [nodeId, section] : sections_)
+    {
+        if (!section.header) {
+            continue;
+        }
+
+        const bool selected =
+            nodeId == selectedNodeId_;
+
+
+        // 对应原版：
+        // Selected: IM_COL32(39, 154, 14, 255)
+        // Normal:   IM_COL32(45, 52, 65, 255)
+        if (selected)
+        {
+            section.header->setStyleSheet(
+                QStringLiteral(
+                    "QToolButton {"
+                    " background-color: rgb(39, 154, 14);"
+                    " color: white;"
+                    " border: none;"
+                    " border-radius: 2px;"
+                    " padding: 6px;"
+                    " text-align: left;"
+                    " font-weight: bold;"
+                    "}"));
+        }
+        else
+        {
+            section.header->setStyleSheet(
+                QStringLiteral(
+                    "QToolButton {"
+                    " background-color: rgb(45, 52, 65);"
+                    " color: white;"
+                    " border: none;"
+                    " border-radius: 2px;"
+                    " padding: 6px;"
+                    " text-align: left;"
+                    "}"));
+        }
+    }
 }
