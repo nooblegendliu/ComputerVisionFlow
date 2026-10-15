@@ -7,9 +7,7 @@ add_library(VisionFlowEditor STATIC
     
     PropertyPanel.h
     PropertyPanel.cpp 
-    
-    "../app/VisionFlowStudio/ViewerPanel.h" 
-    "../app/VisionFlowStudio/ViewerPanel.cpp")
+)
 
 add_library(
     VisionFlow::Editor 

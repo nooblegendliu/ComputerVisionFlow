@@ -29,9 +29,12 @@ int main(int argc, char* argv[])
 
 		const int result = app.exec();
 
+		// new add
+		manager.StopAutoTick();
+
 		return result;
 	}
-	catch (const std::exception const& error) {
+	catch (std::exception const& error) {
 		QMessageBox::critical(
 			nullptr, 
 			QStringLiteral("VisionFlowStudio"),
@@ -39,4 +42,5 @@ int main(int argc, char* argv[])
 
 		return 1;
 	}
+
 }
