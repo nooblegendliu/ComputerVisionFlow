@@ -1,12 +1,15 @@
 
 #include "MainWindow.h"
+#include "ViewerPanel.h"
 
 #include <VisionFlowEditor.h>
 #include <PropertyPanel.h>
+
 #include <flowcv_manager.h>
-#include "ViewerPanel.h"
+#include <Viewer/Viewer.hpp>
 
 #include <cstdint>
+#include <memory>
 
 #include <QtCore/QSettings>
 
@@ -39,24 +42,22 @@ namespace
 // =============================================================
 // Construction
 // =============================================================
-MainWindow::MainWindow(
-    FlowCV::FlowCV_Manager& manager,
-    QWidget* parent)
-    : QMainWindow(parent),
-    manager_(manager)
+
+MainWindow::MainWindow(FlowCV::FlowCV_Manager& manager, QWidget* parent)
+    : QMainWindow(parent), manager_(manager)
 {
     setupWindow();
 
     setupNodeList();
     setupPropertyPanel();
-    setupViewerPanel();
+    setupViewerPlaceholder();
 
     setupDockLayout();
     setupMenusAndToolbar();
 
-    // 必须在全部 Dock 和 Toolbar 创建完成后恢复布局。
+    // 先恢复主窗口布局，
+    // 再创建动态 Viewer Dock。
     restoreWindowLayout();
-
 
     // ---------------------------------------------------------
     // Graph Changed
@@ -69,11 +70,12 @@ MainWindow::MainWindow(
         {
             refreshGraphStatistics();
 
-            // 保留多节点属性面板的刷新方式。
-            propertyPanel_->refresh(); 
+            // 保留现有属性面板刷新。
+            propertyPanel_->refresh();
 
-            // 新增预览面板
-            viewerPanel_->syncViewers();
+            // 根据 Manager 中的 Viewer 实例，
+            // 创建或销毁独立预览 Dock。
+            syncViewerDocks();
         });
 
 
@@ -125,11 +127,16 @@ MainWindow::MainWindow(
                 5000);
         });
 
+
+    // 处理创建 MainWindow 之前已经存在的 Viewer。
+    syncViewerDocks();
+
     refreshGraphStatistics();
 
     statusBar()->showMessage(
         QStringLiteral("Ready"));
 }
+
 
 
 // =============================================================
@@ -512,18 +519,208 @@ void MainWindow::setupPropertyPanel()
 // =============================================================
 // Viewer Placeholder
 // =============================================================
-void MainWindow::setupViewerPanel()
+void MainWindow::setupViewerPlaceholder()
 {
-    viewerDock_ = new QDockWidget(QStringLiteral("Viewer"),this);
+    viewerDock_ = new QDockWidget(
+        QStringLiteral("Viewer"),
+        this);
 
-    // 保留原来的 objectName，
-    // 避免破坏已有 QSettings Dock 布局记忆。
+    // 保留旧 objectName，兼容原有基础 Dock 布局。
     viewerDock_->setObjectName(
         QStringLiteral("ViewerDock"));
 
-    viewerPanel_ = new ViewerPanel(manager_, viewerDock_);
+    auto* placeholder = new QLabel(
+        QStringLiteral("No Viewer preview"),
+        viewerDock_);
 
-    viewerDock_->setWidget(viewerPanel_);
+    placeholder->setObjectName(
+        QStringLiteral("ViewerPlaceholder"));
+
+    placeholder->setAlignment(
+        Qt::AlignCenter);
+
+    viewerDock_->setWidget(placeholder);
+}
+
+
+
+void MainWindow::syncViewerDocks()
+{
+    // ---------------------------------------------------------
+    // 1. 查询 Manager 中当前存在的 Viewer
+    // ---------------------------------------------------------
+    std::map<std::uint64_t, QString> currentViewers;
+
+    const std::uint64_t count =
+        manager_.GetNodeCount();
+
+    for (std::uint64_t i = 0; i < count; ++i)
+    {
+        FlowCV::NodeInfo info{};
+
+        if (!manager_.GetNodeInfoByIndex(i, info))
+            continue;
+
+        auto viewer =
+            std::dynamic_pointer_cast<
+            DSPatch::DSPatchables::Viewer>(
+                info.node_ptr);
+
+        if (!viewer)
+            continue;
+
+        const QString title =
+            QStringLiteral("Viewer_%1")
+            .arg(viewer->GetInstanceCount());
+
+        currentViewers.emplace(info.id, title);
+    }
+
+
+    // ---------------------------------------------------------
+    // 2. 删除 Manager 中已经不存在的 Viewer Dock
+    // ---------------------------------------------------------
+    for (auto it = viewerDocks_.begin();
+        it != viewerDocks_.end();)
+    {
+        const std::uint64_t nodeId = it->first;
+
+        if (currentViewers.find(nodeId) !=
+            currentViewers.end())
+        {
+            ++it;
+            continue;
+        }
+
+        QDockWidget* dock = it->second;
+
+        // 从 View 菜单中移除该 Viewer。
+        viewerWindowsMenu_->removeAction(
+            dock->toggleViewAction());
+
+        // 从主窗口布局移除。
+        removeDockWidget(dock);
+
+        dock->hide();
+
+        // 避免在 GraphModel 信号调用过程中
+        // 立即销毁仍可能被 Qt 使用的控件。
+        dock->deleteLater();
+
+        it = viewerDocks_.erase(it);
+    }
+
+
+    // ---------------------------------------------------------
+    // 3. 为新增 Viewer 创建独立 Dock
+    // ---------------------------------------------------------
+    for (const auto& [nodeId, title] : currentViewers)
+    {
+        auto existing = viewerDocks_.find(nodeId);
+
+        if (existing != viewerDocks_.end())
+        {
+            // 已有 Dock 保持原位置，仅更新标题。
+            existing->second->setWindowTitle(title);
+            continue;
+        }
+
+        auto* dock = new QDockWidget(title, this);
+
+        // 使用 FlowCV Node ID 生成唯一 objectName。
+        // saveState / restoreDockWidget 依赖该名称。
+        dock->setObjectName(
+            QStringLiteral("ViewerDock_%1")
+            .arg(
+                static_cast<qulonglong>(nodeId)));
+
+        dock->setAllowedAreas(
+            Qt::AllDockWidgetAreas);
+
+        dock->setFeatures(
+            QDockWidget::DockWidgetClosable |
+            QDockWidget::DockWidgetMovable |
+            QDockWidget::DockWidgetFloatable);
+
+        // 一个 Dock 只管理一个 ViewerPanel。
+        auto* panel = new ViewerPanel(
+            manager_,
+            nodeId,
+            dock);
+
+        dock->setWidget(panel);
+
+
+        // -----------------------------------------------------
+        // 4. 尝试恢复此前保存的 Dock 位置。
+        //
+        // 仅当 restoreWindowLayout() 已调用后，
+        // restoreDockWidget() 才适用于延迟创建的 Dock。
+        // -----------------------------------------------------
+        const bool restored =
+            restoreDockWidget(dock);
+
+        if (!restored)
+        {
+            // 默认在右侧 Viewer 区域水平排列。
+            QDockWidget* anchor = viewerDock_;
+
+            // 优先以已经存在且正常停靠的 Viewer
+            // 作为相邻分割的参照。
+            for (const auto& [otherId, otherDock]
+                : viewerDocks_)
+            {
+                (void)otherId;
+
+                if (otherDock->isFloating())
+                    continue;
+
+                if (otherDock->isHidden())
+                    continue;
+
+                // 已被手动标签化的 Dock 不适合作为
+                // 默认分割锚点。
+                if (!tabifiedDockWidgets(
+                    otherDock).isEmpty())
+                {
+                    continue;
+                }
+
+                anchor = otherDock;
+                break;
+            }
+
+            // 空占位区在需要分割时可临时显示。
+            if (anchor == viewerDock_)
+                viewerDock_->show();
+
+            splitDockWidget(
+                anchor,
+                dock,
+                Qt::Horizontal);
+
+            dock->show();
+        }
+
+        // 保存 UI 映射。
+        viewerDocks_.emplace(nodeId, dock);
+
+        // 加入 View -> Viewer Windows 菜单。
+        viewerWindowsMenu_->addAction(
+            dock->toggleViewAction());
+    }
+
+
+    // ---------------------------------------------------------
+    // 5. 更新占位区域与菜单
+    // ---------------------------------------------------------
+    viewerWindowsMenu_->setEnabled(
+        !viewerDocks_.empty());
+
+    // 存在实际 Viewer 时隐藏空占位窗口。
+    // 没有 Viewer 时恢复占位区。
+    viewerDock_->setVisible(
+        viewerDocks_.empty());
 }
 
 
@@ -596,9 +793,26 @@ void MainWindow::setupDockLayout()
 // =============================================================
 void MainWindow::resetDockLayout()
 {
-    // 只重新排列 Dock，不销毁其中的 Editor、PropertyPanel。
-    // 这样不会影响 Manager 中的节点和连线。
+    // ---------------------------------------------------------
+    // 1. 从现有布局中移除动态 Viewer Dock
+    //    不删除 Viewer 节点，也不销毁预览控件。
+    // ---------------------------------------------------------
+    for (const auto& [nodeId, dock] : viewerDocks_)
+    {
+        (void)nodeId;
 
+        dock->hide();
+
+        if (dock->isFloating())
+            dock->setFloating(false);
+
+        removeDockWidget(dock);
+    }
+
+
+    // ---------------------------------------------------------
+    // 2. 恢复原有基础 Dock 布局
+    // ---------------------------------------------------------
     QDockWidget* docks[] = {
         propertyDock_,
         viewerDock_,
@@ -610,14 +824,11 @@ void MainWindow::resetDockLayout()
     {
         dock->hide();
 
-        // 浮动窗口重新返回主窗口。
         dock->setFloating(false);
 
-        // 从旧布局中移除，但保留对象。
         removeDockWidget(dock);
     }
 
-    // 重建默认三分区布局。
     setupDockLayout();
 
     propertyDock_->show();
@@ -627,22 +838,56 @@ void MainWindow::resetDockLayout()
     nodeLibraryDock_->hide();
 
     if (graphToolBar_)
-    {
         graphToolBar_->show();
+
+
+    // ---------------------------------------------------------
+    // 3. 将所有独立 Viewer 重新放回默认区域
+    // ---------------------------------------------------------
+    QDockWidget* anchor = viewerDock_;
+
+    for (const auto& [nodeId, dock] : viewerDocks_)
+    {
+        (void)nodeId;
+
+        splitDockWidget(
+            anchor,
+            dock,
+            Qt::Horizontal);
+
+        dock->show();
+
+        anchor = dock;
     }
 
-    // 恢复默认分割比例。
+
+    // ---------------------------------------------------------
+    // 4. 根据 Viewer 数量显示或隐藏占位区
+    // ---------------------------------------------------------
+    viewerDock_->setVisible(
+        viewerDocks_.empty());
+
+
+    // ---------------------------------------------------------
+    // 5. 恢复默认大小比例
+    // ---------------------------------------------------------
     resizeDocks(
         { propertyDock_, viewerDock_ },
-        { width() / 5, width() * 4 / 5 },
+        {
+            width() / 5,
+            width() * 4 / 5
+        },
         Qt::Horizontal);
 
     resizeDocks(
         { viewerDock_, editorDock_ },
-        { height() * 55 / 100,
-          height() * 45 / 100 },
+        {
+            height() * 55 / 100,
+            height() * 45 / 100
+        },
         Qt::Vertical);
 }
+
 
 
 // =============================================================
@@ -779,13 +1024,16 @@ void MainWindow::setupMenusAndToolbar()
         menuBar()->addMenu(
             QStringLiteral("&View"));
 
-
-    // 使用 QDockWidget 内置的显示/隐藏 QAction。
     viewMenu->addAction(
         propertyDock_->toggleViewAction());
 
-    viewMenu->addAction(
-        viewerDock_->toggleViewAction());
+    // 每个 Viewer 都通过自己的 toggleViewAction
+    // 控制显示和隐藏。
+    viewerWindowsMenu_ =
+        viewMenu->addMenu(
+            QStringLiteral("Viewer Windows"));
+
+    viewerWindowsMenu_->setEnabled(false);
 
     viewMenu->addAction(
         editorDock_->toggleViewAction());
@@ -821,7 +1069,6 @@ void MainWindow::setupMenusAndToolbar()
     viewMenu->addSeparator();
 
 
-    // 恢复默认停靠结构，不清空节点。
     QAction* resetLayout =
         viewMenu->addAction(
             QStringLiteral("Reset Layout"));
@@ -840,7 +1087,6 @@ void MainWindow::setupMenusAndToolbar()
         addToolBar(
             QStringLiteral("Graph"));
 
-    // saveState/restoreState 需要唯一 objectName。
     graphToolBar_->setObjectName(
         QStringLiteral("GraphToolBar"));
 
@@ -873,6 +1119,7 @@ void MainWindow::setupMenusAndToolbar()
     graphToolBar_->addAction(fit);
     graphToolBar_->addAction(resetZoom);
 }
+
 
 
 // =============================================================

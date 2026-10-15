@@ -1,43 +1,37 @@
+
 #pragma once
 
 #include <cstdint>
-#include <vector>
 
 #include <QtWidgets/QWidget>
 
 class QLabel;
-class QStackedWidget;
-class QTabWidget;
 class QTimer;
 
-namespace FlowCV {
+namespace FlowCV
+{
     class FlowCV_Manager;
 }
 
+// 一个 ViewerPanel 只负责一个 Viewer 节点。
+// Dock 的创建与销毁由 MainWindow 负责。
 class ViewerPanel final : public QWidget
 {
 public:
     explicit ViewerPanel(
-        FlowCV::FlowCV_Manager& manager, QWidget* parent = nullptr);
-
-    // 节点图变化后同步 Viewer 实例
-    void syncViewers();
+        FlowCV::FlowCV_Manager& manager,
+        std::uint64_t viewerNodeId,
+        QWidget* parent = nullptr);
 
 private:
-    void refreshFrames();
+    void refreshFrame();
 
-    struct Preview
-    {
-        std::uint64_t nodeId = 0;
-        QLabel* imageLabel = nullptr;
-    };
-
+private:
     FlowCV::FlowCV_Manager& manager_;
 
-    QStackedWidget* stack_ = nullptr;
-    QTabWidget* tabs_ = nullptr;
-    QLabel* placeholder_ = nullptr;
-    QTimer* refreshTimer_ = nullptr;
+    // 真实 FlowCV Node ID，而不是 QtNodes NodeId。
+    std::uint64_t viewerNodeId_ = 0;
 
-    std::vector<Preview> previews_;
+    QLabel* imageLabel_ = nullptr;
+    QTimer* refreshTimer_ = nullptr;
 };

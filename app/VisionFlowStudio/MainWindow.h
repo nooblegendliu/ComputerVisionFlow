@@ -1,6 +1,9 @@
 
 #pragma once
 
+#include <cstdint>
+#include <map>
+
 #include <QtWidgets/QMainWindow>
 
 namespace FlowCV
@@ -13,11 +16,11 @@ class QCloseEvent;
 class QDockWidget;
 class QLabel;
 class QListWidget;
+class QMenu;
 class QToolBar;
 
 class VisionFlowEditor;
 class PropertyPanel;
-class ViewerPanel;
 
 
 // 负责组合 Qt UI、管理 Dock 布局及窗口设置。
@@ -41,7 +44,12 @@ private:
     // Dock Panels
     void setupNodeList();
     void setupPropertyPanel();
-    void setupViewerPanel();
+
+    // 无 Viewer 节点时的默认占位区
+    void setupViewerPlaceholder();
+
+    // 同步 FlowCV Viewer 节点与独立 Dock
+    void syncViewerDocks();
 
     // Dock Layout
     void setupDockLayout();
@@ -69,9 +77,15 @@ private:
     PropertyPanel* propertyPanel_ = nullptr;
     QDockWidget* propertyDock_ = nullptr;
 
-    // Viewer Placeholder
+    // 原有 Viewer Dock 只作为无节点占位区
     QDockWidget* viewerDock_ = nullptr;
-    ViewerPanel* viewerPanel_ = nullptr;        // new add
+
+    // 每个 Viewer 节点对应一个独立 QDockWidget
+    // Key: FlowCV Node ID
+    std::map<std::uint64_t, QDockWidget*> viewerDocks_;
+
+    // View 菜单中的 Viewer 窗口列表
+    QMenu* viewerWindowsMenu_ = nullptr;
 
     // Toolbar
     QToolBar* graphToolBar_ = nullptr;

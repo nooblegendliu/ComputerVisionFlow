@@ -1,3 +1,4 @@
+
 #include "ViewerPanel.h"
 
 #include <Viewer/Viewer.hpp>
@@ -14,240 +15,149 @@
 
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QSizePolicy>
-#include <QtWidgets/QStackedWidget>
-#include <QtWidgets/QTabWidget>
 #include <QtWidgets/QVBoxLayout>
 
 
+// =============================================================
+// Constructor
+// =============================================================
 ViewerPanel::ViewerPanel(
     FlowCV::FlowCV_Manager& manager,
+    std::uint64_t viewerNodeId,
     QWidget* parent)
     : QWidget(parent),
-    manager_(manager)
+    manager_(manager),
+    viewerNodeId_(viewerNodeId)
 {
     auto* layout = new QVBoxLayout(this);
+
     layout->setContentsMargins(0, 0, 0, 0);
 
-    stack_ = new QStackedWidget(this);
+    imageLabel_ = new QLabel(this);
 
-    placeholder_ = new QLabel(
-        QStringLiteral("No Viewer preview"),
-        stack_);
+    imageLabel_->setAlignment(Qt::AlignCenter);
 
-    placeholder_->setAlignment(Qt::AlignCenter);
+    imageLabel_->setSizePolicy(
+        QSizePolicy::Ignored,
+        QSizePolicy::Ignored);
 
-    tabs_ = new QTabWidget(stack_);
+    imageLabel_->setMinimumSize(0, 0);
 
-    stack_->addWidget(placeholder_);
-    stack_->addWidget(tabs_);
+    imageLabel_->setStyleSheet(
+        QStringLiteral(
+            "background-color: #101010;"));
 
-    layout->addWidget(stack_);
+    layout->addWidget(imageLabel_);
 
-    // 定时器只负责 UI 刷新，不参与 DSPatch 调度。
+    // 只刷新 Qt 图像，不驱动 DSPatch 计算。
     refreshTimer_ = new QTimer(this);
+
     refreshTimer_->setInterval(33);
 
     connect(
         refreshTimer_,
         &QTimer::timeout,
         this,
-        [this]() { refreshFrames(); });
+        [this]()
+        {
+            refreshFrame();
+        });
 
-    syncViewers();
     refreshTimer_->start();
 }
 
-void ViewerPanel::syncViewers()
+
+// =============================================================
+// Refresh One Viewer Frame
+// =============================================================
+void ViewerPanel::refreshFrame()
 {
-    struct ViewerInfo
+    // Dock 被关闭或隐藏时不需要更新画面。
+    // Viewer 节点本身仍由 DSPatch 正常处理。
+    if (!isVisible())
+        return;
+
+    FlowCV::NodeInfo info{};
+
+    if (!manager_.GetNodeInfoById(
+        viewerNodeId_, info))
     {
-        std::uint64_t id;
-        QString title;
-    };
-
-    std::vector<ViewerInfo> viewers;
-
-    const auto count = manager_.GetNodeCount();
-
-    for (std::uint64_t i = 0; i < count; ++i)
-    {
-        FlowCV::NodeInfo info{};
-
-        if (!manager_.GetNodeInfoByIndex(i, info))
-            continue;
-
-        auto viewer =
-            std::dynamic_pointer_cast<
-            DSPatch::DSPatchables::Viewer>(
-                info.node_ptr);
-
-        if (!viewer)
-            continue;
-
-        viewers.push_back({
-            info.id,
-            QStringLiteral("Viewer_%1")
-                .arg(viewer->GetInstanceCount())
-            });
-    }
-
-    // Viewer 列表未改变时，不重建图像控件。
-    bool same = viewers.size() == previews_.size();
-
-    if (same)
-    {
-        for (std::size_t i = 0; i < viewers.size(); ++i)
-        {
-            if (viewers[i].id != previews_[i].nodeId)
-            {
-                same = false;
-                break;
-            }
-        }
-    }
-
-    if (same)
-    {
-        for (int i = 0; i < tabs_->count(); ++i)
-            tabs_->setTabText(i, viewers[i].title);
+        imageLabel_->clear();
         return;
     }
 
-    // 保存当前正在预览的 Viewer
-    std::uint64_t selectedId = 0;
+    auto viewer =
+        std::dynamic_pointer_cast<
+        DSPatch::DSPatchables::Viewer>(
+            info.node_ptr);
 
-    const int current = tabs_->currentIndex();
-
-    if (current >= 0 &&
-        static_cast<std::size_t>(current) < previews_.size())
+    if (!viewer)
     {
-        selectedId = previews_[current].nodeId;
+        imageLabel_->clear();
+        return;
     }
 
-    // 删除旧 UI，不影响 Manager 内部节点。
-    while (tabs_->count() > 0)
+    // Viewer 自身负责图像缓存和互斥同步。
+    const cv::Mat frame = viewer->GetFrameCopy();
+
+    if (frame.empty())
     {
-        QWidget* page = tabs_->widget(0);
-        tabs_->removeTab(0);
-        delete page;
+        imageLabel_->clear();
+        return;
     }
 
-    previews_.clear();
+    // ---------------------------------------------------------
+    // OpenCV Mat Type -> Qt Image Format
+    // ---------------------------------------------------------
+    QImage::Format format;
 
-    for (const auto& viewer : viewers)
+    switch (frame.type())
     {
-        auto* label = new QLabel(tabs_);
+    case CV_8UC1:
+        format = QImage::Format_Grayscale8;
+        break;
 
-        label->setAlignment(Qt::AlignCenter);
+    case CV_8UC3:
+        format = QImage::Format_BGR888;
+        break;
 
-        label->setSizePolicy(
-            QSizePolicy::Ignored,
-            QSizePolicy::Ignored);
+    case CV_8UC4:
+        // Windows x64 little-endian:
+        // QImage::Format_ARGB32 的内存排列为 BGRA。
+        format = QImage::Format_ARGB32;
+        break;
 
-        label->setMinimumSize(0, 0);
-
-        label->setStyleSheet(
-            QStringLiteral(
-                "background-color: #101010;"));
-
-        tabs_->addTab(label, viewer.title);
-
-        previews_.push_back({
-            viewer.id,
-            label
-            });
+    default:
+        return;
     }
 
-    // 尽量保持当前 Viewer 选项
-    for (std::size_t i = 0; i < previews_.size(); ++i)
-    {
-        if (previews_[i].nodeId == selectedId)
-        {
-            tabs_->setCurrentIndex(static_cast<int>(i));
-            break;
-        }
-    }
+    // ---------------------------------------------------------
+    // Mat -> QImage
+    // ---------------------------------------------------------
+    QImage image(
+        frame.data,
+        frame.cols,
+        frame.rows,
+        static_cast<qsizetype>(frame.step),
+        format);
 
-    stack_->setCurrentWidget(
-        previews_.empty()
-        ? static_cast<QWidget*>(placeholder_)
-        : static_cast<QWidget*>(tabs_));
-}
+    // 深拷贝，保证图像不依赖局部 cv::Mat 的生命周期。
+    image = image.copy();
 
-void ViewerPanel::refreshFrames()
-{
-    for (auto& preview : previews_)
-    {
-        FlowCV::NodeInfo info{};
+    // ---------------------------------------------------------
+    // Scale To ViewerPanel
+    // ---------------------------------------------------------
+    const QSize targetSize = imageLabel_->size();
 
-        if (!manager_.GetNodeInfoById(
-            preview.nodeId, info))
-        {
-            continue;
-        }
+    if (targetSize.isEmpty())
+        return;
 
-        auto viewer =
-            std::dynamic_pointer_cast<
-            DSPatch::DSPatchables::Viewer>(
-                info.node_ptr);
+    QPixmap pixmap =
+        QPixmap::fromImage(std::move(image));
 
-        if (!viewer)
-            continue;
-
-        const cv::Mat frame = viewer->GetFrameCopy();
-
-        if (frame.empty())
-        {
-            preview.imageLabel->clear();
-            continue;
-        }
-
-        QImage::Format format;
-
-        switch (frame.type())
-        {
-        case CV_8UC1:
-            format = QImage::Format_Grayscale8;
-            break;
-
-        case CV_8UC3:
-            format = QImage::Format_BGR888;
-            break;
-
-        case CV_8UC4:
-            // Windows x64 little-endian：
-            // Format_ARGB32 的内存字节顺序是 BGRA。
-            format = QImage::Format_ARGB32;
-            break;
-
-        default:
-            continue;
-        }
-
-        // QImage 先包装 cv::Mat 内存，
-        // 再进行深拷贝，避免帧析构后悬空引用。
-        QImage image(
-            frame.data,
-            frame.cols,
-            frame.rows,
-            static_cast<qsizetype>(frame.step),
-            format);
-
-        image = image.copy();
-
-        const QSize targetSize =
-            preview.imageLabel->size();
-
-        if (targetSize.isEmpty())
-            continue;
-
-        QPixmap pixmap =
-            QPixmap::fromImage(std::move(image));
-
-        preview.imageLabel->setPixmap(
-            pixmap.scaled(
-                targetSize,
-                Qt::KeepAspectRatio,
-                Qt::SmoothTransformation));
-    }
+    imageLabel_->setPixmap(
+        pixmap.scaled(
+            targetSize,
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation));
 }
