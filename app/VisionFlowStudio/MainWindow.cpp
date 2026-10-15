@@ -4,6 +4,7 @@
 #include <VisionFlowEditor.h>
 #include <PropertyPanel.h>
 #include <flowcv_manager.h>
+#include "ViewerPanel.h"
 
 #include <cstdint>
 
@@ -48,7 +49,7 @@ MainWindow::MainWindow(
 
     setupNodeList();
     setupPropertyPanel();
-    setupViewerPlaceholder();
+    setupViewerPanel();
 
     setupDockLayout();
     setupMenusAndToolbar();
@@ -70,6 +71,9 @@ MainWindow::MainWindow(
 
             // 保留多节点属性面板的刷新方式。
             propertyPanel_->refresh(); 
+
+            // 新增预览面板
+            viewerPanel_->syncViewers();
         });
 
 
@@ -508,29 +512,18 @@ void MainWindow::setupPropertyPanel()
 // =============================================================
 // Viewer Placeholder
 // =============================================================
-void MainWindow::setupViewerPlaceholder()
+void MainWindow::setupViewerPanel()
 {
-    viewerDock_ = new QDockWidget(
-        QStringLiteral("Viewer"),
-        this);
+    viewerDock_ = new QDockWidget(QStringLiteral("Viewer"),this);
 
+    // 保留原来的 objectName，
+    // 避免破坏已有 QSettings Dock 布局记忆。
     viewerDock_->setObjectName(
         QStringLiteral("ViewerDock"));
 
-    // 阶段 D 尚未开始。
-    // 此处只保留布局占位，不读取图像。
-    auto* placeholder = new QLabel(
-        QStringLiteral("No Viewer preview"),
-        viewerDock_);
+    viewerPanel_ = new ViewerPanel(manager_, viewerDock_);
 
-    placeholder->setObjectName(
-        QStringLiteral("ViewerPlaceholder"));
-
-    placeholder->setAlignment(
-        Qt::AlignCenter);
-
-    viewerDock_->setWidget(
-        placeholder);
+    viewerDock_->setWidget(viewerPanel_);
 }
 
 

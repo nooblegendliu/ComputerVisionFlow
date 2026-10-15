@@ -4,8 +4,13 @@
 
 add_executable(VisionFlowStudio 
     main.cpp
-    "MainWindow.h" 
-    "MainWindow.cpp")
+
+    MainWindow.h
+    MainWindow.cpp
+    
+    ViewerPanel.h 
+    ViewerPanel.cpp
+)
 
 target_include_directories(VisionFlowStudio 
     PRIVATE

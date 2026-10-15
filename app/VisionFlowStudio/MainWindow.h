@@ -17,6 +17,7 @@ class QToolBar;
 
 class VisionFlowEditor;
 class PropertyPanel;
+class ViewerPanel;
 
 
 // 负责组合 Qt UI、管理 Dock 布局及窗口设置。
@@ -40,7 +41,7 @@ private:
     // Dock Panels
     void setupNodeList();
     void setupPropertyPanel();
-    void setupViewerPlaceholder();
+    void setupViewerPanel();
 
     // Dock Layout
     void setupDockLayout();
@@ -70,6 +71,7 @@ private:
 
     // Viewer Placeholder
     QDockWidget* viewerDock_ = nullptr;
+    ViewerPanel* viewerPanel_ = nullptr;        // new add
 
     // Toolbar
     QToolBar* graphToolBar_ = nullptr;
