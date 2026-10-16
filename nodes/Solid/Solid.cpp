@@ -1,4 +1,4 @@
-#include "Solid.hpp"	
+#include "solid.hpp"	
 
 #include <algorithm>
 #include <array>

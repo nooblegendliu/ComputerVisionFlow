@@ -11,9 +11,12 @@ namespace FlowCV
 		*  所有已完成的新接口的InternalNodes在此注册
 		*/
 		RegisterNode<DSPatch::DSPatchables::Add>();
+		RegisterNode<DSPatch::DSPatchables::Blur>();
+		RegisterNode<DSPatch::DSPatchables::CannyFilter>();
+		RegisterNode<DSPatch::DSPatchables::Resize>();
 		RegisterNode<DSPatch::DSPatchables::Solid>();
 		RegisterNode<DSPatch::DSPatchables::Viewer>();
-		//...
+		//...后续补充其他节点
 
 		std::sort(node_list_.begin(), node_list_.end(),
 			[](const NodeDescription& lhs, const NodeDescription& rhs)

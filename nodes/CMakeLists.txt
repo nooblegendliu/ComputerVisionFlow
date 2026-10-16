@@ -1,4 +1,4 @@
-find_package(OpenCV CONFIG REQUIRED COMPONENTS core)
+find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc)
 
 # MSVC Debug uses a different CRT/STL ABI. Do not silently fall back to
 # Release libraries when the local OpenCV installation has no Debug build.
@@ -25,19 +25,31 @@ endif()
 add_library(VisionFlowNodes STATIC
 
     # Node registration includes
-    "internal_nodes.h"
+    internal_nodes.h
 
     # Add
-    "Add/add.hpp"
-    "Add/add.cpp"
+    Add/add.hpp
+    Add/add.cpp
 
     # Solid
-    "Solid/Solid.hpp"
-    "Solid/Solid.cpp"
+    Solid/solid.hpp
+    Solid/solid.cpp
 
     # Viewer
-    "Viewer/Viewer.hpp"
-    "Viewer/Viewer.cpp")
+    Viewer/viewer.hpp
+    Viewer/viewer.cpp
+    
+    # Blur
+    Blur/blur.hpp
+    Blur/blur.cpp 
+    
+    # Resize
+    Resize/resize.hpp
+    Resize/resize.cpp 
+    
+    # Canny
+    Canny/canny.hpp 
+    Canny/canny.cpp)
 
 add_library(
     VisionFlow::Nodes 
@@ -64,4 +76,5 @@ target_link_libraries(VisionFlowNodes
         VisionFlow::Sdk
         nlohmann_json::nlohmann_json 
         opencv_core
+        opencv_imgproc
 )
