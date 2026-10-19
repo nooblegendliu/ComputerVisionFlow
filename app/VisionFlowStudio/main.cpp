@@ -8,6 +8,7 @@
 #include <QtCore/QStandardPaths>
 #include <logging/logger.h>
 #include "StudioSettings.h"
+#include <Theme/ThemeManager.h>
 
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QMessageBox>
@@ -33,6 +34,7 @@ int main(int argc, char* argv[])
 			: QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + "/flowcv_editor.cfg";
 		FlowCV::FlowLogger logger;
 		auto settings = StudioSettings::load(configPath);
+		VisionFlow::ThemeManager::instance().setMode(settings.themeMode);
 		settings.applyLogLevel();
 		// Manager必须比主窗口、画布和图模型存活更久
 		FlowCV::FlowCV_Manager manager;

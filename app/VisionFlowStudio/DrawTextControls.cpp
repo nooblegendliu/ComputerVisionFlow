@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "DrawTextControls.h"
 #include <DrawTools/draw_text.hpp>
 #include <opencv2/imgproc.hpp>
@@ -44,7 +45,7 @@ QWidget* CreateDrawTextControls(std::shared_ptr<DSPatch::DSPatchables::DrawText>
     form->addRow("Scale", scale); form->addRow("Thickness", thickness);
     auto* color = new QPushButton(panel); color->setObjectName("color"); form->addRow("Color", color);
     auto* error = new QLabel("Invalid image format or text drawing settings.", panel);
-    error->setObjectName("drawTextError"); error->setWordWrap(true); error->setStyleSheet("color: #ef5350;");
+    error->setObjectName("drawTextError"); error->setWordWrap(true); error->setProperty("severity", "error");
     layout->addWidget(error);
     auto* timer = new QTimer(panel);
     const auto displayColor = [](const cv::Vec3f& rgb) {

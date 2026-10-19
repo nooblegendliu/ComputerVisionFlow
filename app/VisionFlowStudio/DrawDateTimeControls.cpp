@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "DrawDateTimeControls.h"
 #include <DrawTools/draw_datetime.hpp>
 #include <opencv2/imgproc.hpp>
@@ -37,7 +38,7 @@ QWidget* CreateDrawDateTimeControls(std::shared_ptr<DSPatch::DSPatchables::DrawD
     time->setToolTip("%H/%I: hour; %M: minute; %S: second; %c: date and time; %X/%r/%R/%T: time; %p: AM/PM; %z/%Z: timezone");
     auto* dateError = new QLabel("Invalid Date Format", panel); dateError->setObjectName("dateFormatError");
     auto* timeError = new QLabel("Invalid Time Format", panel); timeError->setObjectName("timeFormatError");
-    for (auto* label : {dateError, timeError}) label->setStyleSheet("color: #ef5350;");
+    for (auto* label : {dateError, timeError}) label->setProperty("severity", "error");
     form->addRow(showDate); form->addRow("Date Format", date); form->addRow(dateError);
     form->addRow(showTime); form->addRow("Time Format", time); form->addRow(timeError);
     auto* font = new QComboBox(panel); font->setObjectName("font");
@@ -55,7 +56,7 @@ QWidget* CreateDrawDateTimeControls(std::shared_ptr<DSPatch::DSPatchables::DrawD
     form->addRow("Scale", scale); form->addRow("Thickness", thickness);
     auto* color = new QPushButton(panel); color->setObjectName("color"); form->addRow("Color", color);
     auto* error = new QLabel("Invalid image, date/time format or drawing settings.", panel);
-    error->setObjectName("drawDateTimeError"); error->setWordWrap(true); error->setStyleSheet("color: #ef5350;");
+    error->setObjectName("drawDateTimeError"); error->setWordWrap(true); error->setProperty("severity", "error");
     layout->addWidget(error);
     auto* timer = new QTimer(panel);
     const auto displayColor = [](const cv::Vec3f& rgb) {

@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "ConvertColorControls.h"
 #include <ConvertColor/convert_color.hpp>
 #include <QComboBox>
@@ -19,7 +20,7 @@ QWidget* CreateConvertColorControls(std::shared_ptr<DSPatch::DSPatchables::Conve
     layout->addWidget(conversion);
     auto* error = new QLabel("Incompatible Conversion Type", panel);
     error->setObjectName("convertColorError");
-    error->setStyleSheet("color: #ef5350;");
+    error->setProperty("severity", "error");
     error->setVisible(node->HasChannelError());
     layout->addWidget(error);
     const std::weak_ptr<DSPatch::DSPatchables::ConvertColor> weak = node;

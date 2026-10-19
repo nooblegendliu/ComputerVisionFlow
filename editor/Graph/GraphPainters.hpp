@@ -10,6 +10,8 @@
 #include <QtNodes/internal/ConnectionGraphicsObject.hpp>
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
 #include "VisionFlowGraphModel.hpp"
+#include "Theme/ThemeColors.h"
+#include <QtWidgets/QApplication>
 #include <cmath>
 
 inline QColor categoryColor(DSPatch::Category category)
@@ -47,14 +49,18 @@ public:
         if (manager_.GetNodeInfoById(model.flowNodeId(node.nodeId()), info)) {
             painter->fillRect(QRectF(1, 1, size.width()-2,
                 node.nodeScene()->nodeGeometry().captionRect(node.nodeId()).height()+8),
-                categoryColor(info.desc.category));
+                [&] {
+                    auto color = categoryColor(info.desc.category);
+                    if (!VisionFlow::themeColors(QApplication::palette()).dark) color.setAlpha(55);
+                    return color;
+                }());
         }
         drawConnectionPoints(painter, node);
         drawFilledConnectionPoints(painter, node);
         drawNodeCaption(painter, node);
         drawEntryLabels(painter, node);
         if (info.node_ptr && !info.node_ptr->IsEnabled()) {
-            painter->setPen(QPen(QColor(227,126,18), 1.5));
+            painter->setPen(QPen(VisionFlow::themeColors(QApplication::palette()).warning, 1.5));
             painter->drawLine(QPointF(0,0), QPointF(size.width(),size.height()));
             painter->drawLine(QPointF(0,size.height()), QPointF(size.width(),0));
         }
@@ -75,7 +81,9 @@ public:
         const auto path = curve(c);
         painter->save();
         painter->setBrush(Qt::NoBrush);
-        painter->setPen(QPen(c.isSelected() ? QColor(255,170,40) : QColor(135,170,200),
+        const auto colors = VisionFlow::themeColors(QApplication::palette());
+        painter->setPen(QPen(c.isSelected() ? colors.connectionSelected
+            : c.connectionState().hovered() ? colors.accent : colors.connection,
             c.connectionState().hovered() ? 3.5 : 2.2));
         if (c.connectionState().requiresPort()) {
             auto pen = painter->pen(); pen.setStyle(Qt::DashLine); painter->setPen(pen);
@@ -84,7 +92,7 @@ public:
         if (animated_ && !c.connectionState().requiresPort()) {
             const double phase = std::fmod(time_.elapsed()/2000.0, 1.0);
             painter->setPen(Qt::NoPen);
-            painter->setBrush(QColor(220,240,255));
+            painter->setBrush(colors.flowIndicator);
             for (int i=0; i<3; ++i) {
                 const double t = std::fmod(phase+i/3.0, 1.0);
                 painter->save();

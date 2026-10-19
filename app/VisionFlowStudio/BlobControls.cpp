@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "BlobControls.h"
 #include <BlobDetector/blob_detector.hpp>
 #include <QCheckBox>
@@ -45,7 +46,7 @@ QWidget* CreateBlobControls(std::shared_ptr<DSPatch::DSPatchables::BlobDetector>
     layout->addWidget(picker);
     auto* error = new QLabel("Incompatible image format or blob detector settings.", panel);
     error->setObjectName("blobError"); error->setWordWrap(true);
-    error->setStyleSheet("color: #ef5350;");
+    error->setProperty("severity", "error");
     layout->addWidget(error);
     auto* timer = new QTimer(panel);
     const auto update = [weak, panel, form, editors, error, timer, picker] {

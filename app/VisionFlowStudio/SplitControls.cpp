@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "SplitControls.h"
 #include <Split/split.hpp>
 #include <QLabel>
@@ -14,7 +15,7 @@ QWidget* CreateSplitControls(std::shared_ptr<DSPatch::DSPatchables::Split> node,
     auto* warning = new QLabel("No Color Image Input Detected", panel);
     warning->setObjectName("splitWarning");
     warning->setWordWrap(true);
-    warning->setStyleSheet("color: #ef5350;");
+    warning->setProperty("severity", "error");
     layout->addWidget(warning);
     auto* timer = new QTimer(panel);
     const auto update = [weak, panel, warning, timer] {

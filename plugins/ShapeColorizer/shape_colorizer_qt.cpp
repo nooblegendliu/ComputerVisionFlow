@@ -63,6 +63,7 @@ public:
         closestLayout->addLayout(rows);
         auto* error = new QLabel(panel);
         error->setObjectName("ShapeColorizerError");
+        error->setProperty("severity", "error");
         error->setWordWrap(true); error->setTextFormat(Qt::PlainText);
         layout->addWidget(error);
         const std::weak_ptr<internal::ShapeColorizerState> weak = state_;
@@ -126,7 +127,8 @@ public:
                 color->setObjectName(QString("ShapeColorizerColor%1").arg(i));
                 const auto rgb = p.colors[i].color;
                 const auto current = QColor::fromRgbF(rgb[0], rgb[1], rgb[2]);
-                color->setStyleSheet(QString("background-color: %1").arg(current.name()));
+                color->setStyleSheet(QString("background-color: %1; color: %2;")
+                    .arg(current.name(), current.lightnessF() > .5 ? "black" : "white"));
                 auto* label = new QLineEdit(QString::fromUtf8(p.colors[i].label.c_str()), row);
                 label->setObjectName(QString("ShapeColorizerLabel%1").arg(i));
                 label->setPlaceholderText("Label");

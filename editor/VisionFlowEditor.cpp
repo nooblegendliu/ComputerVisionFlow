@@ -36,6 +36,7 @@
 #include <QtNodes/BasicGraphicsScene>
 #include <QtNodes/GraphicsView>
 #include <QtNodes/StyleCollection>
+#include "Theme/ThemeManager.h"
 #include <QtNodes/internal/ConnectionGraphicsObject.hpp>
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
 
@@ -133,6 +134,7 @@ VisionFlowEditor::VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
     QWidget* parent)
     : QWidget(parent), manager_(manager)
 {
+    (void)VisionFlow::ThemeManager::instance();
     // 依赖顺序：model -> scene -> view；析构函数显式按相反顺序释放。
     model_ = new VisionFlowGraphModel(manager_, this);
 
@@ -145,6 +147,16 @@ VisionFlowEditor::VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
     view_->setObjectName(QStringLiteral("VisionFlowGraphView"));
     view_->setFocusPolicy(Qt::StrongFocus);
     view_->setScaleRange(0.15, 3.0);
+
+    connect(&VisionFlow::ThemeManager::instance(), &VisionFlow::ThemeManager::themeChanged,
+        this, [this] {
+            view_->setBackgroundBrush(QtNodes::StyleCollection::flowViewStyle().BackgroundColor);
+            view_->resetCachedContent();
+            scene_->invalidate(scene_->sceneRect(), QGraphicsScene::AllLayers);
+            for (auto* item : scene_->items()) item->update();
+            scene_->update();
+            view_->viewport()->update();
+        });
 
     scene_->setNodePainter(std::make_unique<FlowNodePainter>(manager_));
     auto connectionPainter = std::make_unique<FlowConnectionPainter>();

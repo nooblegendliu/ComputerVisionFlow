@@ -2,6 +2,7 @@
 #include <QtCore/QString>
 #include <QtCore/QStringList>
 #include <nlohmann/json.hpp>
+#include <Theme/ThemeColors.h>
 class QWidget;
 namespace FlowCV { class FlowCV_Manager; }
 
@@ -15,6 +16,7 @@ struct StudioSettings
     int bufferCount = 1;
     int logLevel = 1; // Original config: debug=0, info=1, warning=2, off=3.
     bool showFps = false;
+    VisionFlow::ThemeMode themeMode = VisionFlow::ThemeMode::System;
 
     static StudioSettings load(const QString& path);
     void save() const;

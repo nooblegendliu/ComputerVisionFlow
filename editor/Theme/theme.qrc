@@ -1,0 +1,11 @@
+<RCC><qresource prefix="/visionflow/theme">
+    <file>widgets.qss</file>
+    <file alias="dark/spin-down-disabled.svg">icons/dark/spin-down-disabled.svg</file>
+    <file alias="dark/spin-down.svg">icons/dark/spin-down.svg</file>
+    <file alias="dark/spin-up-disabled.svg">icons/dark/spin-up-disabled.svg</file>
+    <file alias="dark/spin-up.svg">icons/dark/spin-up.svg</file>
+    <file alias="light/spin-down-disabled.svg">icons/light/spin-down-disabled.svg</file>
+    <file alias="light/spin-down.svg">icons/light/spin-down.svg</file>
+    <file alias="light/spin-up-disabled.svg">icons/light/spin-up-disabled.svg</file>
+    <file alias="light/spin-up.svg">icons/light/spin-up.svg</file>
+</qresource></RCC>

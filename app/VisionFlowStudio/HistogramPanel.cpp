@@ -34,7 +34,7 @@ public:
         p.setClipRect(a);
         const auto map=[&](double x,double y){return QPointF(a.left()+(x-range.left())*a.width()/range.width(),a.bottom()-(y-range.top())*a.height()/range.height());};
         const std::vector<float>* values[]{&data.red,&data.green,&data.blue};
-        const QColor colors[]{Qt::red,Qt::green,data.is_color?QColor(Qt::blue):QColor(191,191,191)};
+        const QColor colors[]{Qt::red,Qt::green,data.is_color?QColor(Qt::blue):palette().text().color()};
         for(int c=0;c<3;++c) {
             if(!channels[c] || values[c]->empty()) continue;
             QPainterPath line; line.moveTo(map(data.x[0],(*values[c])[0]));

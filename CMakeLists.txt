@@ -48,7 +48,7 @@ option(VISIONFLOW_BUILD_TESTS "Build plugin integration tests" OFF)
 
 # Find Qt in the common parent scope of its consumers.
 if(VISIONFLOW_BUILD_STUDIO)
-  find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets)
+  find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets)
 endif()
 
 # ------------------------------------------------------------------------
@@ -86,5 +86,8 @@ endif()
 
 if(VISIONFLOW_BUILD_TESTS)
   enable_testing()
+  if(VISIONFLOW_BUILD_STUDIO)
+    add_subdirectory(editor/Theme/tests)
+  endif()
   add_subdirectory(tests)
 endif()

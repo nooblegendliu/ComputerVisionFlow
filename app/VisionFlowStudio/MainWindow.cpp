@@ -1,6 +1,8 @@
 
 #include "MainWindow.h"
 #include "StudioNodeUis.h"
+#include <Theme/ThemeManager.h>
+#include <QtGui/QActionGroup>
 
 #include <VisionFlowEditor.h>
 #include <PropertyPanel.h>
@@ -352,370 +354,7 @@ void MainWindow::setupWindow()
 // =============================================================
 void MainWindow::setupAppearance()
 {
-    // ---------------------------------------------------------
-    // Qt Widgets Dark Appearance
-    //
-    // 仅在 Studio 主窗口及其子控件中生效。
-    // ---------------------------------------------------------
-    setStyleSheet(QString::fromUtf8(R"QSS(
-
-        QMainWindow {
-            background-color: #20242b;
-            color: #dfe5ed;
-        }
-
-        QDialog {
-            background-color: #28313b;
-            color: #dfe5ed;
-        }
-
-        QDialog QLabel {
-            color: #dfe5ed;
-        }
-
-        QDialog QLineEdit {
-            background-color: #333c48;
-            color: #e1e6ed;
-            border: 1px solid #536070;
-            padding: 4px;
-        }
-
-        QDockWidget {
-            color: #dfe5ed;
-            font-weight: normal;
-        }
-
-        QDockWidget::title {
-            background-color: #303946;
-            border: 1px solid #424c5a;
-            padding: 5px 8px;
-            text-align: left;
-        }
-
-        QMenuBar {
-            background-color: #252b34;
-            color: #e1e6ed;
-            border-bottom: 1px solid #3b4552;
-            spacing: 4px;
-        }
-
-        QMenuBar::item {
-            padding: 5px 9px;
-            background: transparent;
-        }
-
-        QMenuBar::item:selected {
-            background-color: #3d5265;
-        }
-
-        QMenu {
-            background-color: #28313b;
-            color: #e1e6ed;
-            border: 1px solid #495564;
-            padding: 4px;
-        }
-
-        QMenu::item {
-            padding: 5px 24px 5px 12px;
-        }
-
-        QMenu::item:selected {
-            background-color: #39576b;
-        }
-
-        QMenu::separator {
-            height: 1px;
-            background-color: #46515e;
-            margin: 4px 6px;
-        }
-
-        QToolBar {
-            background-color: #252b34;
-            border-bottom: 1px solid #3b4552;
-            spacing: 5px;
-            padding: 3px;
-        }
-
-        QToolBar::separator {
-            background-color: #46515e;
-            width: 1px;
-            margin: 3px 5px;
-        }
-
-        QToolButton {
-            color: #e1e6ed;
-            background-color: #303946;
-            border: 1px solid #45505e;
-            border-radius: 3px;
-            padding: 4px 7px;
-        }
-
-        QToolButton:hover {
-            background-color: #405366;
-        }
-
-        QToolButton:pressed {
-            background-color: #2c647a;
-        }
-
-        QStatusBar {
-            background-color: #252b34;
-            color: #c7d0da;
-            border-top: 1px solid #3b4552;
-        }
-
-        QDockWidget QLabel, QStatusBar QLabel {
-            color: #d8dfe8;
-        }
-
-        QMessageBox {
-            background-color: #28313b;
-            color: #dfe5ed;
-        }
-
-        QMessageBox QLabel {
-            background-color: transparent;
-            color: #dfe5ed;
-        }
-
-        QDialog QPushButton {
-            background-color: #303946;
-            color: #e1e6ed;
-            border: 1px solid #536070;
-            border-radius: 3px;
-            padding: 5px 14px;
-            min-width: 56px;
-        }
-
-        QMessageBox QPushButton:default,
-        QMessageBox QPushButton:focus {
-            border-color: #44a6c3;
-        }
-
-        QMessageBox QPushButton:hover:enabled {
-            background-color: #405366;
-        }
-
-        QMessageBox QPushButton:pressed:enabled {
-            background-color: #2c647a;
-        }
-
-        QMessageBox QPushButton:disabled {
-            background-color: #29313b;
-            color: #687584;
-            border-color: #424c5a;
-        }
-
-        QLabel#ViewerPlaceholder {
-            background-color: #222830;
-            color: #8995a5;
-            padding: 12px;
-        }
-
-        QListWidget {
-            background-color: #252c35;
-            color: #dfe5ed;
-            border: none;
-            outline: none;
-        }
-
-        QListWidget::item {
-            padding: 5px 7px;
-        }
-
-        QListWidget::item:selected {
-            background-color: #35566a;
-            color: white;
-        }
-
-        QScrollArea {
-            background-color: #252c35;
-            border: none;
-        }
-
-        QScrollArea#PropertyScrollArea > QWidget,
-        QWidget#PropertyContent {
-            background-color: #252c35;
-            color: #dfe5ed;
-        }
-
-        QSpinBox, QDoubleSpinBox, QComboBox {
-            background-color: #333c48;
-            color: #e1e6ed;
-            border: 1px solid #536070;
-            border-radius: 3px;
-            padding: 3px 5px;
-            min-height: 20px;
-        }
-
-        QSpinBox:focus,
-        QDoubleSpinBox:focus,
-        QComboBox:focus {
-            border: 1px solid #44a6c3;
-        }
-
-        QSpinBox, QDoubleSpinBox {
-            padding-right: 28px;
-        }
-
-        QSpinBox::up-button, QDoubleSpinBox::up-button,
-        QSpinBox::down-button, QDoubleSpinBox::down-button {
-            subcontrol-origin: border;
-            width: 24px;
-            background-color: #303946;
-            border-left: 1px solid #536070;
-        }
-
-        QSpinBox::up-button, QDoubleSpinBox::up-button {
-            subcontrol-position: top right;
-            border-bottom: 1px solid #536070;
-            border-top-right-radius: 3px;
-        }
-
-        QSpinBox::down-button, QDoubleSpinBox::down-button {
-            subcontrol-position: bottom right;
-            border-bottom-right-radius: 3px;
-        }
-
-        QSpinBox::up-button:hover:enabled:!off,
-        QDoubleSpinBox::up-button:hover:enabled:!off,
-        QSpinBox::down-button:hover:enabled:!off,
-        QDoubleSpinBox::down-button:hover:enabled:!off {
-            background-color: #405366;
-        }
-
-        QSpinBox::up-button:pressed:enabled:!off,
-        QDoubleSpinBox::up-button:pressed:enabled:!off,
-        QSpinBox::down-button:pressed:enabled:!off,
-        QDoubleSpinBox::down-button:pressed:enabled:!off {
-            background-color: #2c647a;
-        }
-
-        /* :off marks a direction blocked by the minimum or maximum value. */
-        QSpinBox::up-button:disabled, QSpinBox::up-button:off,
-        QDoubleSpinBox::up-button:disabled, QDoubleSpinBox::up-button:off,
-        QSpinBox::down-button:disabled, QSpinBox::down-button:off,
-        QDoubleSpinBox::down-button:disabled, QDoubleSpinBox::down-button:off {
-            background-color: #29313b;
-            border-color: #424c5a;
-        }
-
-        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-            image: url(:/visionflowstudio/icons/spin-up.svg);
-            width: 10px;
-            height: 6px;
-        }
-
-        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-            image: url(:/visionflowstudio/icons/spin-down.svg);
-            width: 10px;
-            height: 6px;
-        }
-
-        QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off,
-        QDoubleSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:off {
-            image: url(:/visionflowstudio/icons/spin-up-disabled.svg);
-        }
-
-        QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off,
-        QDoubleSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:off {
-            image: url(:/visionflowstudio/icons/spin-down-disabled.svg);
-        }
-
-        QComboBox QAbstractItemView {
-            background-color: #303946;
-            color: #e1e6ed;
-            selection-background-color: #39576b;
-            selection-color: white;
-        }
-
-        QCheckBox {
-            color: #dfe5ed;
-            spacing: 6px;
-        }
-
-        QTabWidget::pane {
-            border: 1px solid #46515e;
-        }
-
-        QTabBar::tab {
-            background-color: #303946;
-            color: #c9d2dc;
-            border: 1px solid #46515e;
-            padding: 5px 13px;
-        }
-
-        QTabBar::tab:selected {
-            background-color: #40556a;
-            color: white;
-        }
-
-        QTabBar::tab:hover {
-            background-color: #3b4c5e;
-        }
-
-    )QSS"));
-
-
-    // ---------------------------------------------------------
-    // QtNodes Node Style
-    //
-    // 通过 QtNodes 公开样式接口设置。
-    // 不修改 third_party/nodeeditor。
-    // ---------------------------------------------------------
-    QtNodes::NodeStyle nodeStyle =
-        QtNodes::StyleCollection::nodeStyle();
-
-    nodeStyle.setBackgroundColor(
-        QColor(39, 46, 56));
-
-    nodeStyle.NormalBoundaryColor =
-        QColor(100, 116, 133);
-
-    nodeStyle.SelectedBoundaryColor =
-        QColor(69, 175, 209);
-
-    nodeStyle.FontColor =
-        QColor(232, 237, 243);
-
-    nodeStyle.FontColorFaded =
-        QColor(164, 179, 193);
-
-    nodeStyle.ConnectionPointColor =
-        QColor(80, 176, 210);
-
-    nodeStyle.FilledConnectionPointColor =
-        QColor(80, 176, 210);
-
-    nodeStyle.PenWidth = 1.0f;
-
-    nodeStyle.HoveredPenWidth = 1.7f;
-
-    nodeStyle.Opacity = 1.0f;
-
-    nodeStyle.ShadowEnabled = false;
-
-    QtNodes::StyleCollection::setNodeStyle(
-        nodeStyle);
-
-
-    // ---------------------------------------------------------
-    // QtNodes Canvas Style
-    // ---------------------------------------------------------
-    QtNodes::GraphicsViewStyle viewStyle =
-        QtNodes::StyleCollection::flowViewStyle();
-
-    viewStyle.BackgroundColor =
-        QColor(32, 38, 47);
-
-    viewStyle.FineGridColor =
-        QColor(43, 51, 61);
-
-    viewStyle.CoarseGridColor =
-        QColor(57, 68, 82);
-
-    QtNodes::StyleCollection::setGraphicsViewStyle(
-        viewStyle);
+    VisionFlow::ThemeManager::instance().setMode(settings_->themeMode);
 }
 
 
@@ -1912,6 +1551,36 @@ void MainWindow::setupMenusAndToolbar()
     viewMenu->addSeparator();
 
     viewMenu->addAction(editor_->showFlowAction());
+
+    auto* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
+    themeMenu->setObjectName(QStringLiteral("ThemeMenu"));
+    auto* themeGroup = new QActionGroup(themeMenu);
+    auto& themes = VisionFlow::ThemeManager::instance();
+    for (const auto mode : {VisionFlow::ThemeMode::System, VisionFlow::ThemeMode::Dark, VisionFlow::ThemeMode::Light}) {
+        const auto name = VisionFlow::themeModeName(mode);
+        auto* action = themeMenu->addAction(mode == VisionFlow::ThemeMode::System ? QStringLiteral("Follow System")
+            : mode == VisionFlow::ThemeMode::Dark ? QStringLiteral("Dark") : QStringLiteral("Light"));
+        action->setObjectName(QStringLiteral("Theme_%1").arg(name));
+        action->setCheckable(true);
+        action->setChecked(themes.mode() == mode);
+        themeGroup->addAction(action);
+        connect(&themes, &VisionFlow::ThemeManager::modeChanged, action,
+            [action, mode](VisionFlow::ThemeMode selected) { action->setChecked(selected == mode); });
+        connect(action, &QAction::triggered, this, [this, mode, &themes] {
+            auto updated = *settings_;
+            updated.themeMode = mode;
+            try {
+                updated.save();
+                *settings_ = std::move(updated);
+                themes.setMode(mode);
+            } catch (const std::exception& error) {
+                // QAction changed its check state before persistence was attempted.
+                for (auto* candidate : findChild<QMenu*>(QStringLiteral("ThemeMenu"))->actions())
+                    candidate->setChecked(candidate->objectName() == QStringLiteral("Theme_%1").arg(VisionFlow::themeModeName(themes.mode())));
+                QMessageBox::warning(this, QStringLiteral("Settings Error"), QString::fromUtf8(error.what()));
+            }
+        });
+    }
 
     auto* help = menuBar()->addMenu(QStringLiteral("&Help"));
     help->addAction(QStringLiteral("Documentation"), this, [] {

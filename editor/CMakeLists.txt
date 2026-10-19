@@ -1,4 +1,9 @@
 add_library(VisionFlowEditor STATIC
+    Theme/ThemeManager.h
+    Theme/ThemeManager.cpp
+    Theme/ThemeStyleSheet.cpp
+    Theme/GraphTheme.cpp
+    Theme/theme.qrc
     NodeUi/NodeUiRegistry.h
     NodeUi/NodeUiRegistry.cpp
     VisionFlowEditor.h
@@ -19,6 +24,7 @@ add_library(
 # 使用 Q_Object必须启用moc
 set_target_properties(VisionFlowEditor PROPERTIES 
     AUTOMOC ON
+    AUTORCC ON
 )
 
 target_include_directories(VisionFlowEditor

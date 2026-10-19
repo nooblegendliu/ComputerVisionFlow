@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "BorderControls.h"
 #include <CopyMakeBorder/copy_make_border.hpp>
 #include <QCheckBox>
@@ -111,7 +112,7 @@ QWidget* CreateCopyMakeBorderControls(std::shared_ptr<DSPatch::DSPatchables::Cop
     }
     auto* error = new QLabel("Incompatible input or border dimensions", panel);
     error->setObjectName("borderError"); error->setWordWrap(true);
-    error->setStyleSheet("color: #ef5350;");
+    error->setProperty("severity", "error");
     layout->addWidget(error);
     refresh.emplace_back([weak, error] {
         if (const auto current = weak.lock()) error->setVisible(current->HasProcessingError());

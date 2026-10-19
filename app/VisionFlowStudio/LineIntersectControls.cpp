@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "LineIntersectControls.h"
 #include <LineIntersect/line_intersect.hpp>
 #include <QCheckBox>
@@ -93,7 +94,7 @@ QWidget* CreateLineIntersectControls(std::shared_ptr<DSPatch::DSPatchables::Line
         });
     }
     auto* error = new QLabel("Invalid lines or drawing input.", panel); error->setObjectName("lineIntersectError");
-    error->setStyleSheet("color: #ef5350;"); layout->addWidget(error);
+    error->setProperty("severity", "error"); layout->addWidget(error);
     auto* timer = new QTimer(panel);
     const auto update = [weak, panel, body, form, status, error, timer, thickness, drawing, refresh] {
         if (const auto target = weak.lock()) {

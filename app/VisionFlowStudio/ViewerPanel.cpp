@@ -33,12 +33,14 @@ protected:
     void paintEvent(QPaintEvent*) override
     {
         QPainter painter(this);
-        painter.fillRect(rect(), QColor(16, 16, 16));
         if (image.isNull()) {
-            painter.setPen(Qt::lightGray);
+            painter.fillRect(rect(), palette().window());
+            painter.setPen(palette().text().color());
             painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("No supported image"));
             return;
         }
+        // Keep the image surround neutral in either UI theme.
+        painter.fillRect(rect(), QColor(16, 16, 16));
         painter.setRenderHint(QPainter::SmoothPixmapTransform);
         painter.drawImage(ViewerImage::imageRect(image.size(), size(), aspect), image);
     }

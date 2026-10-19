@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "ColorCorrectControls.h"
 #include <Colorcorrect/ColorCorrect.hpp>
 #include <QColorDialog>
@@ -99,7 +100,7 @@ QWidget* CreateColorCorrectControls(std::shared_ptr<DSPatch::DSPatchables::Color
     auto* error = new QLabel("Unsupported color image or mask. Use 8-bit BGR/BGRA and a single-channel 8-bit mask.", panel);
     error->setObjectName("colorCorrectError");
     error->setWordWrap(true);
-    error->setStyleSheet("color: #ef5350;");
+    error->setProperty("severity", "error");
     layout->addWidget(error);
     auto* timer = new QTimer(panel);
     const auto update = [weak, panel, error, timer, refresh = std::move(refresh)] {

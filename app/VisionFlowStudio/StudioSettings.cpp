@@ -1,4 +1,5 @@
 #include "StudioSettings.h"
+#include <Theme/ThemeManager.h>
 #include <flowcv_manager.h>
 #include <logging/logger.h>
 #include <QtCore/QDir>
@@ -50,6 +51,14 @@ StudioSettings StudioSettings::load(const QString& path)
         const auto j = nlohmann::json::parse(bytes.constBegin(), bytes.constEnd());
         if (!j.is_object()) throw std::invalid_argument("Settings must be a JSON object");
         settings.extra_ = j;
+        // An older config keeps its existing dark appearance. Invalid theme
+        // fields fall back independently, without discarding other settings.
+        settings.themeMode = VisionFlow::ThemeMode::Dark;
+        if (auto it = j.find("theme_mode"); it != j.end() && it->is_string()) {
+            const auto value = it->get<std::string>();
+            if (value == "system") settings.themeMode = VisionFlow::ThemeMode::System;
+            else if (value == "light") settings.themeMode = VisionFlow::ThemeMode::Light;
+        }
         settings.recentLimit = ReadInt(j, "recent_size", 8, 1, 1000);
         settings.bufferCount = ReadInt(j, "buffer_count", 1, 1, 256);
         settings.logLevel = ReadInt(j, "log_level", 1, 0, 3);
@@ -76,6 +85,7 @@ void StudioSettings::save() const
     j["buffer_count"] = bufferCount;
     j["log_level"] = logLevel;
     j["show_fps"] = showFps;
+    j["theme_mode"] = Utf8(VisionFlow::themeModeName(themeMode));
     j["ext_plugin_dir"] = nlohmann::json::array();
     j["recent_files"] = nlohmann::json::array();
     for (const auto& path : pluginPaths) j["ext_plugin_dir"].push_back(Utf8(path));
@@ -127,6 +137,33 @@ bool EditStudioSettings(StudioSettings& settings, QWidget* parent)
     auto* level = new QComboBox(&dialog);
     level->addItems({"Debug", "Info", "Warning", "Off"}); level->setCurrentIndex(settings.logLevel);
     layout->addRow(QStringLiteral("Log Level"), level);
+    level->setObjectName(QStringLiteral("LogLevel"));
+    // Keep stable object names for settings automation and plugin integrations.
+    auto& themeManager = VisionFlow::ThemeManager::instance();
+    const auto originalTheme = settings.themeMode;
+    auto* theme = new QComboBox(&dialog);
+    theme->setObjectName(QStringLiteral("ThemeMode"));
+    theme->addItem(QStringLiteral("Follow System"), int(VisionFlow::ThemeMode::System));
+    theme->addItem(QStringLiteral("Dark"), int(VisionFlow::ThemeMode::Dark));
+    theme->addItem(QStringLiteral("Light"), int(VisionFlow::ThemeMode::Light));
+    theme->setCurrentIndex(theme->findData(int(originalTheme)));
+    layout->addRow(QStringLiteral("Appearance / Theme"), theme);
+    auto* themeStatus = new QLabel(&dialog);
+    themeStatus->setObjectName(QStringLiteral("ThemeStatus"));
+    const auto updateThemeStatus = [&themeManager, themeStatus] {
+        themeStatus->setText(QStringLiteral("Current appearance: %1. Theme changes apply immediately.")
+            .arg(themeManager.effectiveMode() == VisionFlow::ThemeMode::Dark ? "Dark" : "Light"));
+    };
+    QObject::connect(&themeManager, &VisionFlow::ThemeManager::themeChanged, &dialog, updateThemeStatus);
+    updateThemeStatus();
+    layout->addRow(themeStatus);
+    QObject::connect(theme, &QComboBox::currentIndexChanged, &dialog, [&themeManager, theme](int) {
+        themeManager.setMode(static_cast<VisionFlow::ThemeMode>(theme->currentData().toInt()));
+    });
+    QObject::connect(&dialog, &QDialog::rejected, &dialog, [&themeManager, originalTheme] {
+        // Re-resolve System against the latest OS state when cancelling preview.
+        themeManager.setMode(originalTheme);
+    });
     auto* fps = new QCheckBox(QStringLiteral("Show UI FPS"), &dialog);
     fps->setChecked(settings.showFps); layout->addRow(fps);
     auto* paths = new QListWidget(&dialog);
@@ -148,6 +185,7 @@ bool EditStudioSettings(StudioSettings& settings, QWidget* parent)
         auto updated = settings;
         updated.recentLimit = recent->value(); updated.bufferCount = buffers->value();
         updated.logLevel = level->currentIndex(); updated.showFps = fps->isChecked();
+        updated.themeMode = static_cast<VisionFlow::ThemeMode>(theme->currentData().toInt());
         updated.pluginPaths.clear();
         for (int i = 0; i < paths->count(); ++i) updated.pluginPaths.append(paths->item(i)->text());
         while (updated.recentFiles.size() > updated.recentLimit) updated.recentFiles.removeFirst();

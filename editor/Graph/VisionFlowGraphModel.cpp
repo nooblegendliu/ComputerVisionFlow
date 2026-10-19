@@ -10,6 +10,8 @@
 
 #include <QtNodes/NodeData>
 #include <QtNodes/StyleCollection>
+#include "Theme/ThemeColors.h"
+#include <QtWidgets/QApplication>
 
 namespace
 {
@@ -524,8 +526,9 @@ QVariant VisionFlowGraphModel::nodeData(
         // DefaultNodePainter 使用 fromVariant() 读取。
         auto style = QtNodes::StyleCollection::nodeStyle();
         if (!info.node_ptr->IsEnabled()) {
-            style.setBackgroundColor(QColor(38, 38, 38));
-            style.FontColor = QColor(155, 155, 155);
+            const auto colors = VisionFlow::themeColors(QApplication::palette());
+            style.setBackgroundColor(colors.nodeDisabled);
+            style.FontColor = colors.secondary;
         }
         return style.toJson().toVariantMap();
     }

@@ -160,10 +160,7 @@ namespace DSPatch::DSPatchables {
                 cv::circle(image, cv::Point(cvRound(corners[i].x), cvRound(corners[i].y)), 5, cv::Scalar(0, 220, 255), -1, cv::LINE_AA);
             }
             cv::drawMarker(image, cv::Point(cvRound(center.x), cvRound(center.y)), cv::Scalar(0, 0, 255), cv::MARKER_CROSS, 30, 2, cv::LINE_AA);
-            const cv::Point2f topMiddle = (corners[0] + corners[1]) * 0.5f;
-            cv::line(image, cv::Point(cvRound(center.x), cvRound(center.y)),
-                cv::Point(cvRound(topMiddle.x), cvRound(topMiddle.y)), cv::Scalar(0, 200, 255), 2, cv::LINE_AA);
-
+            
             const cv::Rect panel(8, 8, std::min(image.cols - 8, 335), std::min(image.rows - 8, 90));
             if (panel.width > 0 && panel.height > 0)
                 cv::rectangle(image, panel, cv::Scalar(35, 35, 35), cv::FILLED);

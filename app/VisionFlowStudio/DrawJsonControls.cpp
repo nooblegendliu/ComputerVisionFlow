@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "DrawJsonControls.h"
 #include <DrawTools/draw_json.hpp>
 #include <opencv2/imgproc.hpp>
@@ -81,7 +82,7 @@ QWidget* CreateDrawJsonControls(std::shared_ptr<DSPatch::DSPatchables::DrawJson>
     layout->addWidget(selected);
     auto* noData = new QLabel("JSON Contains No Data", panel); noData->setObjectName("noData"); layout->addWidget(noData);
     auto* error = new QLabel("Invalid JSON field, image format or drawing settings.", panel);
-    error->setObjectName("drawJsonError"); error->setWordWrap(true); error->setStyleSheet("color: #ef5350;");
+    error->setObjectName("drawJsonError"); error->setWordWrap(true); error->setProperty("severity", "error");
     layout->addWidget(error);
     auto* timer = new QTimer(panel);
     const auto displayColor = [](const cv::Vec3f& rgb) {

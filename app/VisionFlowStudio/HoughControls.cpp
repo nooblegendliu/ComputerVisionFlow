@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "HoughControls.h"
 #include <HoughCircles/hough_circles.hpp>
 #include <HoughLines/hough_lines.hpp>
@@ -30,7 +31,7 @@ QWidget* Create(std::shared_ptr<Node> node, QWidget* parent, bool lines)
     auto* error = new QLabel("Invalid input image format or detection settings.", panel);
     error->setObjectName("houghError");
     error->setWordWrap(true);
-    error->setStyleSheet("color: #ef5350;");
+    error->setProperty("severity", "error");
     layout->addWidget(error);
     auto* form = new QFormLayout;
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);

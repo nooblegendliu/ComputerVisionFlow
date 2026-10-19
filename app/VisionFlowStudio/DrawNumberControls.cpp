@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "DrawNumberControls.h"
 #include <DrawTools/draw_number.hpp>
 #include <opencv2/imgproc.hpp>
@@ -40,7 +41,7 @@ QWidget* CreateDrawNumberControls(std::shared_ptr<DSPatch::DSPatchables::DrawNum
     form->addRow("Scale", scale); form->addRow("Thickness", thickness);
     auto* color = new QPushButton(panel); color->setObjectName("color"); form->addRow("Color", color);
     auto* error = new QLabel("Invalid image format or text drawing settings.", panel);
-    error->setObjectName("drawNumberError"); error->setWordWrap(true); error->setStyleSheet("color: #ef5350;");
+    error->setObjectName("drawNumberError"); error->setWordWrap(true); error->setProperty("severity", "error");
     layout->addWidget(error);
     auto* timer = new QTimer(panel);
     const auto displayColor = [](const cv::Vec3f& rgb) {

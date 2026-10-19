@@ -9,6 +9,7 @@
 #include <QtCore/QTimer>
 #include <QtCore/QPointer>
 #include <QtCore/QVariant>
+#include <QtWidgets/QStyle>
 
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QComboBox>
@@ -805,35 +806,12 @@ void PropertyPanel::updateSelectionStyle()
             nodeId == selectedNodeId_;
 
 
-        // 对应原版：
-        // Selected: IM_COL32(39, 154, 14, 255)
-        // Normal:   IM_COL32(45, 52, 65, 255)
-        if (selected)
-        {
-            section.header->setStyleSheet(
-                QStringLiteral(
-                    "QToolButton {"
-                    " background-color: rgb(39, 154, 14);"
-                    " color: white;"
-                    " border: none;"
-                    " border-radius: 2px;"
-                    " padding: 6px;"
-                    " text-align: left;"
-                    " font-weight: bold;"
-                    "}"));
-        }
-        else
-        {
-            section.header->setStyleSheet(
-                QStringLiteral(
-                    "QToolButton {"
-                    " background-color: rgb(45, 52, 65);"
-                    " color: white;"
-                    " border: none;"
-                    " border-radius: 2px;"
-                    " padding: 6px;"
-                    " text-align: left;"
-                    "}"));
-        }
+        if (section.header->property("nodeHeader").toBool()
+            && section.header->property("selected").toBool() == selected) continue;
+        section.header->setProperty("nodeHeader", true);
+        section.header->setProperty("selected", selected);
+        section.header->style()->unpolish(section.header);
+        section.header->style()->polish(section.header);
+        section.header->update();
     }
 }

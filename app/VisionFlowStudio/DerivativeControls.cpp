@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "DerivativeControls.h"
 #include <SobelFilter/sobel_filter.hpp>
 #include <LaplacianFilter/laplacian_filter.hpp>
@@ -58,7 +59,7 @@ QWidget* CreateControls(std::shared_ptr<Node> node, QWidget* parent,
     auto* error = new QLabel("Cannot process this image with the selected depth or kernel size.", panel);
     error->setObjectName(QString::fromLatin1(errorName));
     error->setWordWrap(true);
-    error->setStyleSheet("color: #ef5350;");
+    error->setProperty("severity", "error");
     layout->addWidget(error);
     auto* timer = new QTimer(panel);
     const auto update = [weak, panel, form, error, timer, editors] {

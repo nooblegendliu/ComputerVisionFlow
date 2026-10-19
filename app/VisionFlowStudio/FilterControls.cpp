@@ -1,3 +1,4 @@
+#include <QtCore/QVariant>
 #include "FilterControls.h"
 #include <Threshold/threshold.hpp>
 #include <Morphology/Morphology.hpp>
@@ -154,7 +155,7 @@ void Finish(QWidget* panel, QVBoxLayout* layout, const std::shared_ptr<Node>& no
     auto* error = new QLabel("Incompatible input or parameters", panel);
     error->setWordWrap(true);
     error->setObjectName("filterError");
-    error->setStyleSheet("color: #ef5350;");
+    error->setProperty("severity", "error");
     layout->addWidget(error);
     const std::weak_ptr<Node> weak = node;
     refresh.emplace_back([weak, error] {
