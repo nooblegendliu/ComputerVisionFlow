@@ -90,3 +90,5 @@ Desktop.ini
 
 # Keep source, shared CMake presets, resources, documentation and licenses.
 # Do not ignore third_party/, sdk/thirdParty/, *.json, *.svg or *.png.
+/tests
+/docs/examples
