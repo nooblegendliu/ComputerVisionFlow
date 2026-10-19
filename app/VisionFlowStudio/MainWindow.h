@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <map>
+#include <NodeUi/NodeUiRegistry.h>
+#include "StudioSettings.h"
 
 #include <QtCore/QString>
 #include <QtWidgets/QMainWindow>
@@ -31,10 +33,13 @@ class MainWindow final : public QMainWindow
 public:
     explicit MainWindow(
         FlowCV::FlowCV_Manager& manager,
-        QWidget* parent = nullptr);
+        QWidget* parent = nullptr,
+        StudioSettings* settings = nullptr);
+    ~MainWindow() override;
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     // ---------------------------------------------------------
@@ -51,6 +56,10 @@ private:
     void setupPropertyPanel();
     void setupViewerPlaceholder();
     void syncViewerDocks();
+    void releaseNodeUi(std::uint64_t nodeId);
+    void clearAllNodeUis();
+    void rebuildRecentMenu();
+    void recordRecent(const QString& path);
 
     // ---------------------------------------------------------
     // Dock Layout
@@ -72,6 +81,7 @@ private:
     // ---------------------------------------------------------
     // Stage E: Project Operations
     // ---------------------------------------------------------
+public:
     void newProject();
     void openProject();
 
@@ -80,6 +90,8 @@ private:
 
     bool saveProjectToFile(const QString& filePath);
     bool loadProjectFromFile(const QString& filePath);
+
+private:
 
     // 合并 Manager 与 Editor 状态。
     nlohmann::json collectProjectState() const;
@@ -98,6 +110,12 @@ private:
 
 private:
     FlowCV::FlowCV_Manager& manager_;
+    VisionFlow::NodeUiRegistry nodeUiRegistry_;
+    StudioSettings defaultSettings_;
+    StudioSettings* settings_;
+    QMenu* recentMenu_ = nullptr;
+    QLabel* fpsLabel_ = nullptr;
+    int paintCount_ = 0;
 
     // Editor
     VisionFlowEditor* editor_ = nullptr;

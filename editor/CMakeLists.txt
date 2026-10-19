@@ -1,4 +1,6 @@
 add_library(VisionFlowEditor STATIC
+    NodeUi/NodeUiRegistry.h
+    NodeUi/NodeUiRegistry.cpp
     VisionFlowEditor.h
     VisionFlowEditor.cpp
 
@@ -30,6 +32,7 @@ target_link_libraries(VisionFlowEditor
         VisionFlow::Managers
         QtNodes::QtNodes
         Qt6::Widgets
+        VisionFlow::QtNodeUi
 
     PRIVATE
         VisionFlow::Sdk

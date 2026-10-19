@@ -1,4 +1,4 @@
-#include "Viewer.hpp"
+#include "viewer.hpp"
 
 #include <exception>
 #include <iostream>

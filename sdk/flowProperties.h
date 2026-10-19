@@ -22,10 +22,12 @@ namespace FlowCV
         kDataTypeInt,
         kDataTypeFloat,
         kDataTypeOption,
-        kDataTypeSeparator
+        kDataTypeSeparator,
+        kDataTypeString,
+        kDataTypeFilePath
     };
 
-    using PropertyValue = std::variant<bool, int, float>;
+    using PropertyValue = std::variant<bool, int, float, std::string>;
 
     struct IntRange
     {
@@ -76,6 +78,10 @@ namespace FlowCV
             float min = 0.0f, float max = 100.0f, float step = 0.1f, bool visible = true);
         void AddOption(const std::string& key, const std::string& desc, int value,
             std::vector<std::string> options, bool visible = true);
+        void AddString(const std::string& key, const std::string& desc, const std::string& value,
+            bool visible = true);
+        void AddFilePath(const std::string& key, const std::string& desc, const std::string& value,
+            bool visible = true);
         void Remove(const std::string& key);
         void RemoveAll();
 
@@ -84,6 +90,8 @@ namespace FlowCV
         void Set(const std::string& key, bool value);
         void Set(const std::string& key, int value);
         void Set(const std::string& key, float value);
+        void Set(const std::string& key, const std::string& value);
+        void Set(const std::string& key, const char* value);
         void SetMin(const std::string& key, int value);
         void SetMax(const std::string& key, int value);
         void SetMin(const std::string& key, float value);
@@ -100,7 +108,7 @@ namespace FlowCV
         void Sync();
 
         // Missing keys return T{}. Mismatched existing values throw
-        // std::invalid_argument. Only bool, int and float are supported.
+        // std::invalid_argument. Supports bool, int, float and UTF-8 std::string.
         template<typename T> T Get(const std::string& key) const;
         template<typename T> T GetW(const std::string& key) const;
         // No range/step returns T{}. Options expose int bounds [0, size - 1].
@@ -158,8 +166,8 @@ namespace FlowCV
     template<typename T>
     T FlowCV_Properties::ReadAs(const std::string& key, ValueField field) const
     {
-        static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, float>,
-            "Properties support only bool, int and float");
+        static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, float>
+            || std::is_same_v<T, std::string>, "Unsupported property value type");
         const auto value = ReadValue(key, field);
         if (!value)
             return T{};

@@ -88,6 +88,10 @@ namespace FlowCV
 
         bool SetNodeProperty(uint64_t node_id, const std::string& key, float value);
 
+        bool SetNodeProperty(uint64_t node_id, const std::string& key, const std::string& value);
+
+        bool SetNodeProperty(uint64_t node_id, const std::string& key, const char* value);
+
         /*
         *   State serialization
         */
@@ -150,6 +154,8 @@ namespace FlowCV
 
         void StopAutoTick();
 
+        bool IsAutoTickRunning() const noexcept { return auto_tick_running_; }
+
     protected:
 
         uint64_t AddNewNodeInstance(const char* name, bool external_plugin = false, uint64_t id = 0);
@@ -168,6 +174,7 @@ namespace FlowCV
 
     private:
         uint64_t id_counter_;
+        bool auto_tick_running_ = false;
 
         uint64_t wire_id_counter_;
 

@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | spdlog | [上游](https://github.com/gabime/spdlog)，通过本机 vcpkg classic 安装；当前包配置声明 1.17.0，项目未锁定版本 | MIT |
 | nlohmann_json | [上游](https://github.com/nlohmann/json)，通过本机 vcpkg classic 安装；当前包配置声明 3.12.0，项目未锁定版本 | MIT |
-| OpenCV | [上游](https://github.com/opencv/opencv)，使用本机预先构建的 MSVC x64 包，要求 `core` 组件；当前包配置声明 4.14.0，项目未锁定版本 | 当前安装包主许可证为 Apache-2.0，随包第三方组件保留各自许可 |
+| OpenCV | [上游](https://github.com/opencv/opencv)，使用本机预先构建的 MSVC x64 包，节点需要 `core`、`imgproc`、`video`、`features2d`，图片插件另需 `imgcodecs`；当前包配置声明 4.14.0，项目未锁定版本 | 当前安装包主许可证为 Apache-2.0，随包第三方组件保留各自许可 |
 | DSPatch | 从 [FlowCV](https://github.com/FlowCV-org/FlowCV) 定制版 7.0.1 整理，参考提交 `b09c48edcc9437253da6049365d319fe036eff61`；源码位于 `../sdk/thirdParty/dspatch/` | 对应文件保留 BSD-2-Clause 声明 |
 | QtNodes | [nodeeditor](https://github.com/paceholder/nodeeditor) 3.0.16 源码快照，固定提交 `7c6341a66a8e46b8988140b9e60d892b6a3560b3`，位于 `nodeeditor/` | BSD-3-Clause，见[许可证](nodeeditor/LICENSE.rst) |
 | Qt | 本机 Qt SDK，当前个人配置使用 Qt 6.11.1 MSVC 2022 x64 套件；项目查找 Qt 6，未锁定小版本 | 以所安装 SDK 及其模块的许可证为准 |
@@ -21,7 +21,7 @@
 
 `third_party/CMakeLists.txt` 无条件查找 `spdlog` 和 `nlohmann_json`，均使用 `CONFIG REQUIRED GLOBAL`，让同级模块能访问导入目标。`VisionFlow::Utils` 的日志公开头文件使用 spdlog，因此以 `PUBLIC` 链接 `spdlog::spdlog`；fmt 由 spdlog 包配置传递，无需手写包含路径或库名。`VisionFlow::Sdk` 以 `PUBLIC` 链接 `VisionFlow::DSPatch` 和 `nlohmann_json::nlohmann_json`，后者供 `flowProperties.h` 等公开头文件使用。
 
-`nodes/CMakeLists.txt` 无条件执行 `find_package(OpenCV CONFIG REQUIRED COMPONENTS core)`，节点库公开链接 `opencv_core`。`VisionFlow::Managers` 公开链接 Sdk，私有链接 Nodes 和 Utils。`VisionFlow::Editor` 公开链接 Managers、`QtNodes::QtNodes` 和 `Qt6::Widgets`，私有链接 Sdk 和 `Qt6::Core`；其公开头文件涉及的 QtNodes、Qt 与 Manager 使用要求由 CMake 传播。完整目标关系以[架构说明](../docs/architecture.md)为准。
+`nodes/CMakeLists.txt` 查找并公开链接 OpenCV `core`、`imgproc`、`video`、`features2d`；后两者分别用于 Background_Subtraction 与 Blob_Detector。`VisionFlow::Managers` 公开链接 Sdk，私有链接 Nodes 和 Utils。`VisionFlow::Editor` 公开链接 Managers、`QtNodes::QtNodes` 和 `Qt6::Widgets`，私有链接 Sdk 和 `Qt6::Core`；其公开头文件涉及的 QtNodes、Qt 与 Manager 使用要求由 CMake 传播。完整目标关系以[架构说明](../docs/architecture.md)为准。
 
 启用 `VISIONFLOW_BUILD_STUDIO`（默认 `ON`）时，顶层查找 Qt 6 的 `Core`、`Gui`、`Widgets`、`OpenGL`，构建 QtNodes、Editor 和 Qt Widgets 程序 VisionFlowStudio。关闭后不查找 Qt、不进入 QtNodes、不生成 Editor 或 Studio，只构建库；spdlog、JSON、OpenCV 和 DSPatch 仍是库构建所需依赖。
 

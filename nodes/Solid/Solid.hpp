@@ -30,6 +30,8 @@ namespace DSPatch::DSPatchables
 
 	private:
 		std::mutex io_mutex_;
+		std::recursive_mutex state_mutex_;
+		int applied_fps_index_ = 7;
 
 		// 帧率控制所使用的时间点
 		std::chrono::steady_clock::time_point last_time_;

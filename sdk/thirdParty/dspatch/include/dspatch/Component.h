@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <dspatch/ComponentTypes.h>
 
 #include <string>
+#include <atomic>
 #include <unordered_map>
 #include <map>
 
@@ -122,7 +123,8 @@ namespace DSPatch {
 		Category category_;
 		std::string author_;
 		std::string version_;
-		bool isEnabled_;
+		// Processing nodes may restore their enabled state while the Qt editor reads it.
+		std::atomic<bool> isEnabled_{true};
 	};
 
 

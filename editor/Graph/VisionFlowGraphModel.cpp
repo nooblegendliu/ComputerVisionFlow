@@ -1,4 +1,5 @@
 #include "VisionFlowGraphModel.hpp"
+#include "AutoTickPause.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -343,6 +344,7 @@ QtNodes::NodeId VisionFlowGraphModel::addNode(
     }
 
     const QByteArray utf8 = nodeType.toUtf8();
+    AutoTickPause pause(manager_);
 
     std::uint64_t flowId = 0;
 
@@ -384,6 +386,7 @@ bool VisionFlowGraphModel::connectionPossible(
 {
     if (connection.outNodeId == QtNodes::InvalidNodeId ||
         connection.inNodeId == QtNodes::InvalidNodeId ||
+        connection.outNodeId == connection.inNodeId ||
         connection.outPortIndex == QtNodes::InvalidPortIndex ||
         connection.inPortIndex == QtNodes::InvalidPortIndex ||
         connectionExists(connection)) {
@@ -428,6 +431,7 @@ void VisionFlowGraphModel::addConnection(
     if (!connectionPossible(connection)) {
         return;
     }
+    AutoTickPause pause(manager_);
 
     const auto fromId = flowNodeId(connection.outNodeId);
     const auto toId = flowNodeId(connection.inNodeId);
@@ -515,12 +519,16 @@ QVariant VisionFlowGraphModel::nodeData(
             .arg(QString::fromStdString(info.desc.name))
             .arg(info.node_ptr->GetInstanceCount());
 
-    case QtNodes::NodeRole::Style:
+    case QtNodes::NodeRole::Style: {
         // 保留 QVariantMap 形式：
         // DefaultNodePainter 使用 fromVariant() 读取。
-        return QtNodes::StyleCollection::nodeStyle()
-            .toJson()
-            .toVariantMap();
+        auto style = QtNodes::StyleCollection::nodeStyle();
+        if (!info.node_ptr->IsEnabled()) {
+            style.setBackgroundColor(QColor(38, 38, 38));
+            style.FontColor = QColor(155, 155, 155);
+        }
+        return style.toJson().toVariantMap();
+    }
 
     case QtNodes::NodeRole::InPortCount:
         return static_cast<unsigned int>(
@@ -666,7 +674,10 @@ QVariant VisionFlowGraphModel::portData(
             : info.node_ptr->GetOutputName(
                 static_cast<int>(index));
 
-        return QString::fromStdString(name);
+        const auto type = portType == QtNodes::PortType::In
+            ? info.node_ptr->GetInputType(static_cast<int>(index))
+            : info.node_ptr->GetOutputType(static_cast<int>(index));
+        return QStringLiteral("%1 [%2]").arg(QString::fromStdString(name), nodeDataType(type).name);
     }
     }
 
@@ -701,6 +712,7 @@ bool VisionFlowGraphModel::deleteConnection(
     if (!connectionExists(connection)) {
         return false;
     }
+    AutoTickPause pause(manager_);
 
     const bool disconnected = manager_.DisconnectNodes(
         flowNodeId(connection.outNodeId),
@@ -737,6 +749,8 @@ bool VisionFlowGraphModel::deleteNode(QtNodes::NodeId nodeId)
 
     // 删除前记录关联连线。
     auto attached = allConnectionIds(nodeId);
+    AutoTickPause pause(manager_);
+    Q_EMIT nodeAboutToBeRemoved(flowId);
 
     // 实际删除仍由原有 Manager 完成。
     if (!manager_.RemoveNodeInstance(flowId)) {
@@ -758,4 +772,38 @@ bool VisionFlowGraphModel::deleteNode(QtNodes::NodeId nodeId)
     Q_EMIT nodeDeleted(nodeId);
 
     return true;
+}
+
+bool VisionFlowGraphModel::nodeEnabled(QtNodes::NodeId nodeId) const
+{
+    FlowCV::NodeInfo info{};
+    return getNodeInfo(nodeId, info) && info.node_ptr->IsEnabled();
+}
+
+bool VisionFlowGraphModel::setNodeEnabled(QtNodes::NodeId nodeId, bool enabled)
+{
+    FlowCV::NodeInfo info{};
+    if (!getNodeInfo(nodeId, info)) return false;
+    AutoTickPause pause(manager_);
+    if (info.node_ptr->IsEnabled() == enabled) return true;
+    info.node_ptr->SetEnabled(enabled);
+    Q_EMIT nodeUpdated(nodeId);
+    Q_EMIT nodeEnabledChanged(nodeId);
+    return true;
+}
+
+QString VisionFlowGraphModel::nodeInformation(QtNodes::NodeId nodeId) const
+{
+    FlowCV::NodeInfo info{};
+    if (!getNodeInfo(nodeId, info)) return {};
+    const auto& categories = DSPatch::getCategories();
+    auto category = categories.find(info.desc.category);
+    const auto categoryName = info.desc.category == DSPatch::Category::Category_OpenVino
+        ? QStringLiteral("OpenVino")
+        : category == categories.end() ? QStringLiteral("Other") : QString::fromUtf8(category->second);
+    return QStringLiteral("%1\nAuthor: %2\nVersion: %3\nCategory: %4\nInputs: %5\nOutputs: %6")
+        .arg(QString::fromStdString(info.desc.name), QString::fromStdString(info.desc.author),
+            QString::fromStdString(info.desc.version),
+            categoryName)
+        .arg(info.desc.input_count).arg(info.desc.output_count);
 }

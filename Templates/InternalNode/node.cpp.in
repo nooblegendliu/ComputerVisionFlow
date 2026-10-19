@@ -1,0 +1,33 @@
+// Generated from the FlowCV-compatible VisionFlow template; GPL-3.0.
+#include "@NAME@.hpp"
+#include <opencv2/core.hpp>
+
+namespace DSPatch::DSPatchables
+{
+@NAME@::@NAME@() : FlowCV::Node(ProcessOrder::InOrder)
+{
+    SetComponentName_("@NAME@");
+    SetComponentCategory_(Category::Category_Other);
+    SetComponentAuthor_("Author");
+    SetComponentVersion_("0.1.0");
+    SetInputCount_(1, {"in"}, {IoType::Io_Type_CvMat});
+    SetOutputCount_(1, {"out"}, {IoType::Io_Type_CvMat});
+    properties_.AddFloat("gain", "Gain", 1.0f, 0.0f, 4.0f, 0.1f);
+    SetEnabled(true);
+}
+
+void @NAME@::Process_(SignalBus const& inputs, SignalBus& outputs)
+{
+    properties_.Sync();
+    const auto* frame = inputs.GetValue<cv::Mat>(0);
+    if (!frame || frame->empty())
+        return;
+    if (!IsEnabled()) {
+        outputs.SetValue(0, *frame);
+        return;
+    }
+    cv::Mat result;
+    frame->convertTo(result, -1, properties_.Get<float>("gain"));
+    outputs.SetValue(0, result);
+}
+}

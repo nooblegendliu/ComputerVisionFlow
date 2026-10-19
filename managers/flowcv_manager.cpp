@@ -346,6 +346,29 @@ namespace FlowCV
     }
 
 
+    bool FlowCV_Manager::SetNodeProperty(
+        uint64_t node_id, const std::string& key, const std::string& value)
+    {
+        auto node = GetFlowNodeById(node_id);
+        if (!node || !node->Properties().Exists(key))
+            return false;
+
+        try {
+            node->Properties().Set(key, value);
+            return true;
+        }
+        catch (const std::exception& e) {
+            LOG_ERROR("Failed to set property '{}': {}", key, e.what());
+            return false;
+        }
+    }
+
+    bool FlowCV_Manager::SetNodeProperty(
+        uint64_t node_id, const std::string& key, const char* value)
+    {
+        return value && SetNodeProperty(node_id, key, std::string(value));
+    }
+
     // -----------------------------------------------------------------
     //  State Functions
     // -----------------------------------------------------------------
@@ -938,12 +961,14 @@ namespace FlowCV
     void FlowCV_Manager::StartAutoTick(DSPatch::Component::TickMode mode)
     {
         circuit_->StartAutoTick(mode);
+        auto_tick_running_ = true;
     }
 
 
     void FlowCV_Manager::StopAutoTick()
     {
         circuit_->StopAutoTick();
+        auto_tick_running_ = false;
     }
 
 }	// end namespace FlowCV

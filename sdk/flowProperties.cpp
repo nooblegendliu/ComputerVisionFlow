@@ -86,6 +86,20 @@ namespace FlowCV
             value, value, value, std::monostate{}, std::move(options), visible});
     }
 
+    void FlowCV_Properties::AddString(const std::string& key, const std::string& desc,
+        const std::string& value, bool visible)
+    {
+        AddRecord({key, desc, PropertyDataTypes::kDataTypeString,
+            value, value, value, std::monostate{}, {}, visible});
+    }
+
+    void FlowCV_Properties::AddFilePath(const std::string& key, const std::string& desc,
+        const std::string& value, bool visible)
+    {
+        AddRecord({key, desc, PropertyDataTypes::kDataTypeFilePath,
+            value, value, value, std::monostate{}, {}, visible});
+    }
+
     void FlowCV_Properties::AddRecord(PropertyRecord record)
     {
         std::lock_guard<std::mutex> lock(mutex_lock_);
@@ -140,6 +154,10 @@ namespace FlowCV
             break;
         case PropertyDataTypes::kDataTypeFloat:
             matches = std::holds_alternative<float>(value);
+            break;
+        case PropertyDataTypes::kDataTypeString:
+        case PropertyDataTypes::kDataTypeFilePath:
+            matches = std::holds_alternative<std::string>(value);
             break;
         default:
             break;
@@ -255,6 +273,18 @@ namespace FlowCV
     void FlowCV_Properties::Set(const std::string& key, float value)
     {
         SetValue(key, PropertyValue{value});
+    }
+
+    void FlowCV_Properties::Set(const std::string& key, const std::string& value)
+    {
+        SetValue(key, PropertyValue{value});
+    }
+
+    void FlowCV_Properties::Set(const std::string& key, const char* value)
+    {
+        if (!value)
+            throw std::invalid_argument("Property string must not be null");
+        Set(key, std::string(value));
     }
 
     void FlowCV_Properties::SetValue(const std::string& key, const PropertyValue& value)
@@ -435,7 +465,12 @@ namespace FlowCV
         if (!j.is_object())
             return;
 
-        std::vector<std::pair<std::size_t, PropertyValue>> updates;
+        struct Update {
+            std::size_t index;
+            PropertyValue writeValue;
+            PropertyValue readValue;
+        };
+        std::vector<Update> updates;
         updates.reserve(props_.size());
         for (std::size_t i = 0; i < props_.size(); ++i) {
             const auto& record = props_[i];
@@ -456,20 +491,26 @@ namespace FlowCV
             case PropertyDataTypes::kDataTypeFloat:
                 value = ParseFloat(*it);
                 break;
+            case PropertyDataTypes::kDataTypeString:
+            case PropertyDataTypes::kDataTypeFilePath:
+                if (!it->is_string())
+                    throw std::invalid_argument("Property requires a JSON string: " + record.key);
+                value = it->get<std::string>();
+                break;
             default:
                 throw std::invalid_argument("Unsupported property type: " + record.key);
             }
             ValidateValue(record, value);
-            updates.emplace_back(i, value);
+            updates.push_back({i, value, value});
         }
 
-        // All parsing and allocation precede the non-throwing scalar commit.
+        // Prepare both string copies before the non-throwing swap commit.
         bool changed = false;
-        for (const auto& [index, value] : updates) {
-            auto& record = props_[index];
-            changed = changed || record.writeValue != value;
-            record.writeValue = value;
-            record.readValue = value;
+        for (auto& update : updates) {
+            auto& record = props_[update.index];
+            changed = changed || record.writeValue != update.writeValue;
+            record.writeValue.swap(update.writeValue);
+            record.readValue.swap(update.readValue);
         }
         if (changed)
             ++revision_;

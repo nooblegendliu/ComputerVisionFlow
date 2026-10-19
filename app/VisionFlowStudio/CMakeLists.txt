@@ -10,6 +10,28 @@ add_executable(VisionFlowStudio
     
     ViewerPanel.h 
     ViewerPanel.cpp
+    ViewerImage.cpp
+    DrawTextControls.cpp
+    DrawNumberControls.cpp
+    DrawDateTimeControls.cpp
+    DrawJsonControls.cpp
+    HistogramPanel.cpp
+    DepthViewerPanel.cpp
+    DnnControls.cpp
+    StudioNodeUis.cpp
+    BlobControls.cpp
+    HoughControls.cpp
+    LineIntersectControls.cpp
+    DerivativeControls.cpp
+    CropControls.cpp
+    PerspectiveControls.cpp
+    BorderControls.cpp
+    ColorCorrectControls.cpp
+    SplitControls.cpp
+    ConvertColorControls.cpp
+    FilterControls.cpp
+    AnalysisControls.cpp
+    StudioSettings.cpp
 
     resources/studio.qrc
 )
@@ -17,6 +39,9 @@ add_executable(VisionFlowStudio
 set_target_properties(VisionFlowStudio PROPERTIES
     AUTORCC ON
 )
+if(MSVC)
+    target_compile_options(VisionFlowStudio PRIVATE /utf-8)
+endif()
 
 target_include_directories(VisionFlowStudio 
     PRIVATE
@@ -29,8 +54,32 @@ target_link_libraries(VisionFlowStudio
         VisionFlow::Managers 
         VisionFlow::Utils 
         VisionFlow::Nodes
-        Qt6::Widgets)
+        Qt6::Widgets Qt6::OpenGLWidgets)
 
+
+# Run on every Studio build, including when only a plugin was relinked.
+add_custom_target(VisionFlowStudioPlugins
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:VisionFlowStudio>/Plugins"
+    VERBATIM
+)
+get_property(_studio_plugins GLOBAL PROPERTY VISIONFLOW_PLUGIN_TARGETS)
+foreach(_plugin IN LISTS _studio_plugins)
+    add_dependencies(VisionFlowStudioPlugins ${_plugin})
+    add_custom_command(TARGET VisionFlowStudioPlugins POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:${_plugin}>" "$<TARGET_FILE_DIR:VisionFlowStudio>/Plugins/"
+        VERBATIM)
+    if(WIN32)
+    add_custom_command(TARGET VisionFlowStudioPlugins POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_RUNTIME_DLLS:${_plugin}>
+            "$<TARGET_FILE_DIR:VisionFlowStudio>"
+        COMMAND_EXPAND_LISTS VERBATIM
+    )
+    endif()
+endforeach()
+add_dependencies(VisionFlowStudio VisionFlowStudioPlugins)
 
 # ---------------------------------------------------------------------
 #   Windows: Deploy runtime DLLs and Qt plugins

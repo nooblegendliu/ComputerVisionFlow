@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
+#include <unordered_set>
+#include "NodeUi/NodeUiRegistry.h"
 
 #include <QtCore/QString>
 #include <QtWidgets/QWidget>
@@ -26,7 +28,12 @@ class PropertyPanel final : public QWidget
 public:
     explicit PropertyPanel(
         FlowCV::FlowCV_Manager& manager,
-        QWidget* parent = nullptr);
+        QWidget* parent = nullptr,
+        VisionFlow::NodeUiRegistry* registry = nullptr);
+
+    void releaseNodeUi(std::uint64_t nodeId);
+    void clearNodeUis();
+    void reopenNode(std::uint64_t nodeId);
 
 public Q_SLOTS:
     // 当前选中的 FlowCV 节点 ID。
@@ -76,6 +83,9 @@ private:
 
 private:
     FlowCV::FlowCV_Manager& manager_;
+    VisionFlow::NodeUiRegistry fallbackRegistry_;
+    VisionFlow::NodeUiRegistry* registry_;
+    std::unordered_set<std::uint64_t> closedNodes_;
 
     std::uint64_t selectedNodeId_ = 0;
 

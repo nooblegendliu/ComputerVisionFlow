@@ -7,13 +7,19 @@
 #include <variant>
 
 #include <QtCore/QTimer>
+#include <QtCore/QPointer>
+#include <QtCore/QVariant>
 
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QDoubleSpinBox>
+#include <QtWidgets/QFileDialog>
 #include <QtWidgets/QFormLayout>
 #include <QtWidgets/QFrame>
+#include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QLabel>
+#include <QtWidgets/QLineEdit>
+#include <QtWidgets/QPushButton>
 #include <QtWidgets/QScrollArea>
 #include <QtWidgets/QSpinBox>
 #include <QtWidgets/QToolButton>
@@ -25,9 +31,10 @@
 // =============================================================
 PropertyPanel::PropertyPanel(
     FlowCV::FlowCV_Manager& manager,
-    QWidget* parent)
+    QWidget* parent,
+    VisionFlow::NodeUiRegistry* registry)
     : QWidget(parent),
-    manager_(manager)
+    manager_(manager), registry_(registry ? registry : &fallbackRegistry_)
 {
     auto* layout = new QVBoxLayout(this);
 
@@ -66,6 +73,33 @@ void PropertyPanel::setNode(std::uint64_t nodeId)
     updateSelectionStyle();
 }
 
+void PropertyPanel::releaseNodeUi(std::uint64_t nodeId)
+{
+    const auto it = sections_.find(nodeId);
+    if (it != sections_.end()) {
+        auto* widget = it->second.layout->parentWidget();
+        sections_.erase(it);
+        delete widget;
+    }
+    std::erase(nodeOrder_, nodeId);
+    closedNodes_.erase(nodeId);
+}
+
+void PropertyPanel::clearNodeUis()
+{
+    sections_.clear();
+    nodeOrder_.clear();
+    closedNodes_.clear();
+    delete scrollArea_->takeWidget();
+}
+
+void PropertyPanel::reopenNode(std::uint64_t nodeId)
+{
+    closedNodes_.erase(nodeId);
+    refresh();
+    setNode(nodeId);
+}
+
 
 // =============================================================
 // Refresh All Node Sections
@@ -102,21 +136,17 @@ void PropertyPanel::refresh()
             continue;
         }
 
-        if (!info.node_ptr) {
+        if (!info.node_ptr || closedNodes_.contains(info.id)) {
             continue;
         }
 
         FlowCV::PropertiesSnapshot snapshot{};
 
-        if (!manager_.GetNodePropertiesSnapshot(
-            info.id,
-            snapshot)) {
-            continue;
-        }
+        manager_.GetNodePropertiesSnapshot(info.id, snapshot);
 
         // Viewer 等没有可编辑属性的节点，
         // 不显示空的 Controls 分组。
-        if (snapshot.properties.empty()) {
+        if (snapshot.properties.empty() && !registry_->hasUi(info.node_ptr, VisionFlow::NodeUiRole::Controls)) {
             continue;
         }
 
@@ -273,7 +303,18 @@ void PropertyPanel::refresh()
         fields->setVisible(isExpanded);
 
 
-        sectionLayout->addWidget(header);
+        auto* headerRow = new QHBoxLayout;
+        headerRow->addWidget(header);
+        auto* close = new QToolButton(sectionWidget);
+        close->setText(QStringLiteral("\u00d7"));
+        close->setToolTip(QStringLiteral("Close controls; double-click the node to reopen"));
+        close->setObjectName(QStringLiteral("CloseControls_%1").arg(node.id));
+        headerRow->addWidget(close);
+        sectionLayout->addLayout(headerRow);
+        QObject::connect(close, &QToolButton::clicked, this, [this, id = node.id] {
+            closedNodes_.insert(id);
+            QTimer::singleShot(0, this, &PropertyPanel::refresh);
+        });
         sectionLayout->addWidget(fields);
 
         contentLayout->addWidget(sectionWidget);
@@ -358,6 +399,13 @@ QWidget* PropertyPanel::createPropertyFields(
     const FlowCV::PropertiesSnapshot& snapshot,
     QWidget* parent)
 {
+    FlowCV::NodeInfo info{};
+    if (manager_.GetNodeInfoById(nodeId, info) && registry_->hasUi(info.node_ptr, VisionFlow::NodeUiRole::Controls)) {
+        if (auto* widget = registry_->create(info.node_ptr, VisionFlow::NodeUiRole::Controls, parent)) {
+            widget->setProperty("customNodeControls", true);
+            return widget;
+        }
+    }
     auto* fields = new QWidget(parent);
 
     auto* formLayout = new QFormLayout(fields);
@@ -593,6 +641,53 @@ QWidget* PropertyPanel::createPropertyEditor(
     }
 
 
+    case PropertyDataTypes::kDataTypeString:
+    case PropertyDataTypes::kDataTypeFilePath:
+    {
+        auto* container = new QWidget(parent);
+        auto* layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        auto* lineEdit = new QLineEdit(container);
+        const auto& value = std::get<std::string>(property.value);
+        lineEdit->setText(QString::fromUtf8(value.data(), static_cast<int>(value.size())));
+        lineEdit->setProperty("flowStringEditor", true);
+        layout->addWidget(lineEdit);
+
+        // Commit on completion so intermediate path text does not trigger image reads.
+        QObject::connect(lineEdit, &QLineEdit::editingFinished, this,
+            [this, nodeId, key, lineEdit]() {
+                manager_.SetNodeProperty(nodeId, key, lineEdit->text().toUtf8().toStdString());
+                queueRefresh(nodeId);
+            });
+
+        if (property.type == PropertyDataTypes::kDataTypeFilePath) {
+            auto* browse = new QPushButton(QStringLiteral("Browse..."), container);
+            // Avoid rebuilding the row between mouse press (focus loss) and click.
+            browse->setFocusPolicy(Qt::NoFocus);
+            layout->addWidget(browse);
+            QObject::connect(browse, &QPushButton::clicked, this,
+                [this, nodeId, key, lineEdit, parent]() {
+                    // A native file dialog runs a nested event loop. Keep pending
+                    // refreshes from rebuilding its editors while it is open.
+                    QPointer<QWidget> fields(parent);
+                    QPointer<QLineEdit> editor(lineEdit);
+                    fields->setProperty("flowFileDialogOpen", true);
+                    const QString path = QFileDialog::getOpenFileName(
+                        this, QStringLiteral("Select file"), editor->text());
+                    if (!fields || !editor)
+                        return;
+                    fields->setProperty("flowFileDialogOpen", false);
+                    if (!path.isEmpty()) {
+                        editor->setText(path);
+                        manager_.SetNodeProperty(nodeId, key, path.toUtf8().toStdString());
+                    }
+                    queueRefresh(nodeId);
+                });
+        }
+        return container;
+    }
+
+
     // ---------------------------------------------------------
     // Other Types
     // ---------------------------------------------------------
@@ -620,6 +715,17 @@ void PropertyPanel::refreshNodeFields(
     NodeSection& section = it->second;
 
     QWidget* oldFields = section.fields;
+
+    if (oldFields->property("customNodeControls").toBool()) return;
+
+    if (oldFields->property("flowFileDialogOpen").toBool())
+        return;
+    // Do not discard a draft or move the caret when unrelated graph changes
+    // refresh this section. editingFinished schedules the deferred refresh.
+    for (const auto* editor : oldFields->findChildren<QLineEdit*>()) {
+        if (editor->property("flowStringEditor").toBool() && editor->hasFocus())
+            return;
+    }
 
     // 只重新生成指定节点的属性控件。
     QWidget* newFields = createPropertyFields(

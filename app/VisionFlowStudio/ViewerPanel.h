@@ -1,37 +1,32 @@
-
 #pragma once
-
-#include <cstdint>
-
+#include "ViewerImage.h"
 #include <QtWidgets/QWidget>
+#include <memory>
 
-class QLabel;
+class QComboBox;
+class QDoubleSpinBox;
 class QTimer;
+class QScrollArea;
+class ViewerCanvas;
+namespace DSPatch::DSPatchables { class Viewer; }
 
-namespace FlowCV
-{
-    class FlowCV_Manager;
-}
-
-// 一个 ViewerPanel 只负责一个 Viewer 节点。
-// Dock 的创建与销毁由 MainWindow 负责。
+// One GUI-thread-only panel per node; owns its display options, never the flow.
 class ViewerPanel final : public QWidget
 {
 public:
-    explicit ViewerPanel(
-        FlowCV::FlowCV_Manager& manager,
-        std::uint64_t viewerNodeId,
+    explicit ViewerPanel(std::shared_ptr<DSPatch::DSPatchables::Viewer> node,
         QWidget* parent = nullptr);
-
 private:
     void refreshFrame();
-
-private:
-    FlowCV::FlowCV_Manager& manager_;
-
-    // 真实 FlowCV Node ID，而不是 QtNodes NodeId。
-    std::uint64_t viewerNodeId_ = 0;
-
-    QLabel* imageLabel_ = nullptr;
+    void updateCanvasGeometry();
+    bool eventFilter(QObject* watched, QEvent* event) override;
+    std::shared_ptr<DSPatch::DSPatchables::Viewer> node_;
+    ViewerCanvas* canvas_ = nullptr;
+    QScrollArea* scroll_ = nullptr;
+    QWidget* colorMapControls_ = nullptr;
+    QComboBox* channel_ = nullptr;
+    QComboBox* aspect_ = nullptr;
+    QComboBox* colorMap_ = nullptr;
+    QDoubleSpinBox* scale_ = nullptr;
     QTimer* refreshTimer_ = nullptr;
 };

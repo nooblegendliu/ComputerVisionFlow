@@ -10,7 +10,7 @@ namespace FlowCV
 	{
 		bool is_initialized = false;
 		NodeDescription plugin_desc;
-		DSPatch::Plugin* plugin_handle{};
+		std::shared_ptr<DSPatch::Plugin> plugin_handle;
 	};
 
 

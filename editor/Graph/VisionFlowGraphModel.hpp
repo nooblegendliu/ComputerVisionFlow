@@ -105,6 +105,14 @@ public:
 		return false;
 	}
 
+    bool setNodeEnabled(QtNodes::NodeId nodeId, bool enabled);
+    bool nodeEnabled(QtNodes::NodeId nodeId) const;
+    QString nodeInformation(QtNodes::NodeId nodeId) const;
+
+Q_SIGNALS:
+    void nodeAboutToBeRemoved(std::uint64_t flowId);
+    void nodeEnabledChanged(QtNodes::NodeId nodeId);
+
 private:
 	bool getNodeInfo(
 		QtNodes::NodeId nodeId,

@@ -1,4 +1,39 @@
 #pragma once
+#include "BackgroundSubtraction/background_subtraction.hpp"
+#include "GetOptimalDft/get_optimal_dft.hpp"
+#include "DiscreteFourierTransform/discrete_fourier_transform.hpp"
+#include "DiscreteCosineTransform/discrete_cosine_transform.hpp"
+#include "Magnitude/magnitude.hpp"
+#include "RndNoise/rnd_noise.hpp"
+#include "SobelFilter/sobel_filter.hpp"
+#include "ScharrFilter/scharr_filter.hpp"
+#include "LaplacianFilter/laplacian_filter.hpp"
+#include "Sharpen/sharpen.hpp"
+#include "Colorcorrect/ColorCorrect.hpp"
+#include "ColorReduce/color_reduce.hpp"
+#include "Split/split.hpp"
+#include "Combine/combine.hpp"
+#include "Crop/crop.hpp"
+#include "Transform/transform.hpp"
+#include "PerspectiveWarp/perspective_warp.hpp"
+#include "CopyMakeBorder/copy_make_border.hpp"
+#include "AbsDiff/abs_diff.hpp"
+#include "AddWeighted/add_weighted.hpp"
+#include "Subtract/subtract.hpp"
+#include "Multiply/multiply.hpp"
+#include "Divide/divide.hpp"
+#include "Max/max.hpp"
+#include "Min/min.hpp"
+#include "Bitwise/bitwise.hpp"
+#include "Mean/mean.hpp"
+#include "ScaleAbs/scale_abs.hpp"
+#include "Normalize/normalize.hpp"
+#include "ConvertColor/convert_color.hpp"
+#include "Threshold/threshold.hpp"
+#include "Morphology/Morphology.hpp"
+#include "Contours/contours.hpp"
+#include "JsonViewer/json_viewer.hpp"
+#include "GetSize/get_size.hpp"
 
 #include "Add/add.hpp"
 
@@ -11,3 +46,22 @@
 #include "Solid/solid.hpp"
 
 #include "Viewer/viewer.hpp"
+
+#include <BlobDetector/blob_detector.hpp>
+#include <HoughCircles/hough_circles.hpp>
+#include <HoughLines/hough_lines.hpp>
+#include <LineIntersect/line_intersect.hpp>
+
+#include "DrawTools/draw_text.hpp"
+#include "DrawTools/draw_number.hpp"
+#include "DrawTools/draw_datetime.hpp"
+#include "DrawTools/draw_json.hpp"
+#include "HistogramViewer/histogram_viewer.hpp"
+#include "DepthViewer3d/depth_viewer_3d.hpp"
+#include "DNN/dnn_image_classification.hpp"
+#include "DNN/dnn_object_detection.hpp"
+#include "DNN/dnn_segmentation.hpp"
+#include "DNN/dnn_human_pose.hpp"
+#include "DNN/dnn_text_detection.hpp"
+#include "DNN/dnn_text_recognition.hpp"
+#include "DNN/dnn_image_processing.hpp"

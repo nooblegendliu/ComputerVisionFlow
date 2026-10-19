@@ -40,6 +40,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(VISIONFLOW_BUILD_STUDIO 
 	   "Build the editor library and VisionFlowStudio application" ON
 )
+option(VISIONFLOW_BUILD_TESTS "Build plugin integration tests" OFF)
 
 # ------------------------------------------------------------------------
 #	QT Dependencies
@@ -47,7 +48,7 @@ option(VISIONFLOW_BUILD_STUDIO
 
 # Find Qt in the common parent scope of its consumers.
 if(VISIONFLOW_BUILD_STUDIO)
-  find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGL)
+  find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets)
 endif()
 
 # ------------------------------------------------------------------------
@@ -81,4 +82,9 @@ add_subdirectory ("plugins")
 if(VISIONFLOW_BUILD_STUDIO)
   add_subdirectory ("editor")
   add_subdirectory ("app")
+endif()
+
+if(VISIONFLOW_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
 endif()

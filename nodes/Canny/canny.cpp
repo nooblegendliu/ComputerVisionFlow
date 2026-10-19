@@ -80,9 +80,8 @@ namespace DSPatch::DSPatchables
             high = static_cast<float>(mean[0] + deviation[0]);
         }
 
-        // The UI uses a regular QSpinBox (step 1), whereas the original ImGui
-        // editor rounded even values. Normalize at execution as well so an
-        // even aperture cannot cause an OpenCV assertion.
+        // Controls step through odd values. Normalize at execution as well
+        // for externally supplied even apertures.
         const int currentKernel = properties_.Get<int>("kernel_size");
         int kernel = std::clamp(currentKernel, 3, 7);
         if (kernel % 2 == 0) {

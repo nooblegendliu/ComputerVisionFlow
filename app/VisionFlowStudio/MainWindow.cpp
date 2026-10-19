@@ -1,12 +1,12 @@
 
 #include "MainWindow.h"
-#include "ViewerPanel.h"
+#include "StudioNodeUis.h"
 
 #include <VisionFlowEditor.h>
 #include <PropertyPanel.h>
 
 #include <flowcv_manager.h>
-#include <Viewer/Viewer.hpp>
+#include <Graph/VisionFlowGraphModel.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -18,6 +18,14 @@
 #include <QtCore/QFileInfo>
 #include <QtCore/QSaveFile>
 #include <QtCore/QTimer>
+#include <QtCore/QStandardPaths>
+#include <QtCore/QElapsedTimer>
+#include <QtCore/QEvent>
+#include <QtCore/QUrl>
+#include <QtGui/QDesktopServices>
+#include <QtWidgets/QLineEdit>
+#include <QtWidgets/QVBoxLayout>
+#include <QtNodes/GraphicsView>
 
 #include <QtGui/QAction>
 #include <QtGui/QCloseEvent>
@@ -51,9 +59,12 @@ namespace
 // =============================================================
 // Construction
 // =============================================================
-MainWindow::MainWindow(FlowCV::FlowCV_Manager& manager, QWidget* parent)
-    : QMainWindow(parent), manager_(manager)
+MainWindow::MainWindow(FlowCV::FlowCV_Manager& manager, QWidget* parent, StudioSettings* settings)
+    : QMainWindow(parent), manager_(manager), settings_(settings ? settings : &defaultSettings_)
 {
+    if (settings_->configPath.isEmpty())
+        settings_->configPath = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + "/flowcv_editor.cfg";
+    RegisterStudioNodeUis(nodeUiRegistry_);
     setupWindow();
 
     setupNodeList();
@@ -62,6 +73,25 @@ MainWindow::MainWindow(FlowCV::FlowCV_Manager& manager, QWidget* parent)
 
     setupDockLayout();
     setupMenusAndToolbar();
+
+    QObject::connect(editor_->graphModel(), &VisionFlowGraphModel::nodeAboutToBeRemoved,
+        this, &MainWindow::releaseNodeUi);
+    QObject::connect(editor_, &VisionFlowEditor::nodeUiRequested,
+        propertyPanel_, &PropertyPanel::reopenNode);
+    fpsLabel_ = new QLabel(this);
+    statusBar()->addPermanentWidget(fpsLabel_);
+    fpsLabel_->setVisible(settings_->showFps);
+    editor_->graphicsView()->viewport()->installEventFilter(this);
+    auto* fpsTimer = new QTimer(this);
+    auto clock = std::make_shared<QElapsedTimer>();
+    clock->start();
+    QObject::connect(fpsTimer, &QTimer::timeout, this, [this, clock] {
+        const auto elapsed = clock->restart();
+        fpsLabel_->setText(QStringLiteral("UI FPS: %1").arg(elapsed ? paintCount_ * 1000.0 / elapsed : 0.0, 0, 'f', 1));
+        paintCount_ = 0;
+        fpsLabel_->setVisible(settings_->showFps);
+    });
+    fpsTimer->start(1000);
 
     // 先恢复主窗口布局，
     // 再创建动态 Viewer Dock。
@@ -184,6 +214,60 @@ MainWindow::MainWindow(FlowCV::FlowCV_Manager& manager, QWidget* parent)
 #endif
 }
 
+MainWindow::~MainWindow()
+{
+    manager_.StopAutoTick();
+    clearAllNodeUis();
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    if (editor_ && watched == editor_->graphicsView()->viewport() && event->type() == QEvent::Paint)
+        ++paintCount_;
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::releaseNodeUi(std::uint64_t nodeId)
+{
+    propertyPanel_->releaseNodeUi(nodeId);
+    if (auto it = viewerDocks_.find(nodeId); it != viewerDocks_.end()) {
+        auto* dock = it->second;
+        viewerDocks_.erase(it);
+        viewerWindowsMenu_->removeAction(dock->toggleViewAction());
+        removeDockWidget(dock);
+        delete dock;
+    }
+}
+
+void MainWindow::clearAllNodeUis()
+{
+    propertyPanel_->clearNodeUis();
+    while (!viewerDocks_.empty()) releaseNodeUi(viewerDocks_.begin()->first);
+}
+
+void MainWindow::recordRecent(const QString& path)
+{
+    try { settings_->recordRecent(path); }
+    catch (const std::exception& error) {
+        statusBar()->showMessage(QStringLiteral("Unable to save recent files: %1").arg(QString::fromUtf8(error.what())), 5000);
+    }
+    rebuildRecentMenu();
+}
+
+void MainWindow::rebuildRecentMenu()
+{
+    if (!recentMenu_) return;
+    recentMenu_->clear();
+    for (auto it = settings_->recentFiles.crbegin(); it != settings_->recentFiles.crend(); ++it) {
+        const auto path = *it;
+        auto* action = recentMenu_->addAction(path);
+        QObject::connect(action, &QAction::triggered, this, [this, path] {
+            if (confirmDiscardChanges()) loadProjectFromFile(path);
+        });
+    }
+    recentMenu_->setEnabled(!settings_->recentFiles.isEmpty());
+}
+
 
 
 // =============================================================
@@ -278,6 +362,22 @@ void MainWindow::setupAppearance()
         QMainWindow {
             background-color: #20242b;
             color: #dfe5ed;
+        }
+
+        QDialog {
+            background-color: #28313b;
+            color: #dfe5ed;
+        }
+
+        QDialog QLabel {
+            color: #dfe5ed;
+        }
+
+        QDialog QLineEdit {
+            background-color: #333c48;
+            color: #e1e6ed;
+            border: 1px solid #536070;
+            padding: 4px;
         }
 
         QDockWidget {
@@ -378,7 +478,7 @@ void MainWindow::setupAppearance()
             color: #dfe5ed;
         }
 
-        QMessageBox QPushButton {
+        QDialog QPushButton {
             background-color: #303946;
             color: #e1e6ed;
             border: 1px solid #536070;
@@ -643,8 +743,18 @@ void MainWindow::setupNodeList()
         QStringLiteral(
             "Double-click a node to add it to the canvas"));
 
-    nodeLibraryDock_->setWidget(
-        nodeList_);
+    auto* content = new QWidget(nodeLibraryDock_);
+    auto* layout = new QVBoxLayout(content);
+    auto* search = new QLineEdit(content);
+    search->setPlaceholderText(QStringLiteral("Search nodes..."));
+    search->setObjectName(QStringLiteral("NodeLibrarySearch"));
+    layout->addWidget(search);
+    layout->addWidget(nodeList_);
+    nodeLibraryDock_->setWidget(content);
+    QObject::connect(search, &QLineEdit::textChanged, this, [this](const QString& text) {
+        for (int i = 0; i < nodeList_->count(); ++i)
+            nodeList_->item(i)->setHidden(!nodeList_->item(i)->text().contains(text, Qt::CaseInsensitive));
+    });
 
     // 保留原有的节点创建方式。
     QObject::connect(
@@ -676,7 +786,7 @@ void MainWindow::setupPropertyPanel()
 
     propertyPanel_ = new PropertyPanel(
         manager_,
-        propertyDock_);
+        propertyDock_, &nodeUiRegistry_);
 
     propertyPanel_->setMinimumWidth(220);
 
@@ -716,7 +826,7 @@ void MainWindow::setupViewerPlaceholder()
 void MainWindow::syncViewerDocks()
 {
     // ---------------------------------------------------------
-    // 1. 查询 Manager 中当前存在的 Viewer
+    // 1. 查询提供 Main 界面的节点（保留旧 Dock objectName 以恢复布局）。
     // ---------------------------------------------------------
     std::map<std::uint64_t, QString> currentViewers;
 
@@ -730,17 +840,13 @@ void MainWindow::syncViewerDocks()
         if (!manager_.GetNodeInfoByIndex(i, info))
             continue;
 
-        auto viewer =
-            std::dynamic_pointer_cast<
-            DSPatch::DSPatchables::Viewer>(
-                info.node_ptr);
-
-        if (!viewer)
+        if (!nodeUiRegistry_.hasUi(info.node_ptr, VisionFlow::NodeUiRole::Main))
             continue;
 
         const QString title =
-            QStringLiteral("Viewer_%1")
-            .arg(viewer->GetInstanceCount());
+            QStringLiteral("%1_%2")
+            .arg(QString::fromStdString(info.desc.name))
+            .arg(info.node_ptr->GetInstanceCount());
 
         currentViewers.emplace(info.id, title);
     }
@@ -772,9 +878,8 @@ void MainWindow::syncViewerDocks()
 
         dock->hide();
 
-        // 避免在 GraphModel 信号调用过程中
-        // 立即销毁仍可能被 Qt 使用的控件。
-        dock->deleteLater();
+        // 在节点和插件库释放前同步销毁控件及回调。
+        delete dock;
 
         it = viewerDocks_.erase(it);
     }
@@ -811,11 +916,11 @@ void MainWindow::syncViewerDocks()
             QDockWidget::DockWidgetMovable |
             QDockWidget::DockWidgetFloatable);
 
-        // 一个 Dock 只管理一个 ViewerPanel。
-        auto* panel = new ViewerPanel(
-            manager_,
-            nodeId,
-            dock);
+        // 通过可选 Qt 接口创建节点 Main 界面。
+        FlowCV::NodeInfo nodeInfo{};
+        manager_.GetNodeInfoById(nodeId, nodeInfo);
+        auto* panel = nodeUiRegistry_.create(nodeInfo.node_ptr, VisionFlow::NodeUiRole::Main, dock);
+        if (!panel) { delete dock; continue; }
 
         dock->setWidget(panel);
 
@@ -1296,6 +1401,8 @@ bool MainWindow::saveProjectToFile(
         // -----------------------------------------------------
         currentProjectFile_ = filePath;
 
+        recordRecent(filePath);
+
         savedProjectState_ = state;
 
         refreshProjectTitle();
@@ -1458,6 +1565,7 @@ bool MainWindow::loadProjectFromFile(
     manager_.StopAutoTick();
 
     bool managerLoaded = false;
+    clearAllNodeUis();
     bool editorLoaded = false;
 
     QString restoreError;
@@ -1535,6 +1643,8 @@ bool MainWindow::loadProjectFromFile(
     // ---------------------------------------------------------
     currentProjectFile_ = filePath;
 
+    recordRecent(filePath);
+
     updateSavedSnapshot();
 
     statusBar()->showMessage(
@@ -1564,6 +1674,7 @@ void MainWindow::newProject()
     try
     {
         // 沿用 FlowCV Manager 的 NewState。
+        clearAllNodeUis();
         manager_.NewState();
 
         // 重建空白 QtNodes 画布。
@@ -1667,6 +1778,9 @@ void MainWindow::setupMenusAndToolbar()
     fileMenu->addSeparator();
 
     // Save
+    recentMenu_ = fileMenu->addMenu(QStringLiteral("Load Recent"));
+    rebuildRecentMenu();
+
     QAction* saveAction =
         fileMenu->addAction(
             QStringLiteral("&Save"));
@@ -1727,10 +1841,14 @@ void MainWindow::setupMenusAndToolbar()
     const QStringList types =
         editor_->availableNodeTypes();
 
+    QMap<QString, QMenu*> categoryMenus;
     for (QString const& type : types)
     {
+        const auto category = editor_->nodeCategory(type);
+        if (!categoryMenus.contains(category))
+            categoryMenus.insert(category, addMenu->addMenu(category));
         QAction* action =
-            addMenu->addAction(type);
+            categoryMenus.value(category)->addAction(type);
 
         QObject::connect(
             action,
@@ -1758,6 +1876,14 @@ void MainWindow::setupMenusAndToolbar()
     editMenu->addAction(
         editor_->deleteSelectionAction());
 
+    editMenu->addAction(QStringLiteral("Cut"), editor_, &VisionFlowEditor::cutSelection);
+    editMenu->addAction(QStringLiteral("Copy"), this, [this] { editor_->copySelection(); });
+    editMenu->addAction(QStringLiteral("Paste"), editor_, &VisionFlowEditor::pasteSelection);
+    editMenu->addSeparator();
+    editMenu->addAction(QStringLiteral("Settings..."), this, [this] {
+        if (EditStudioSettings(*settings_, this)) rebuildRecentMenu();
+    });
+
 
     // ---------------------------------------------------------
     // View
@@ -1773,7 +1899,7 @@ void MainWindow::setupMenusAndToolbar()
     // 控制显示和隐藏。
     viewerWindowsMenu_ =
         viewMenu->addMenu(
-            QStringLiteral("Viewer Windows"));
+            QStringLiteral("Node Windows"));
 
     viewerWindowsMenu_->setEnabled(false);
 
@@ -1784,6 +1910,17 @@ void MainWindow::setupMenusAndToolbar()
         nodeLibraryDock_->toggleViewAction());
 
     viewMenu->addSeparator();
+
+    viewMenu->addAction(editor_->showFlowAction());
+
+    auto* help = menuBar()->addMenu(QStringLiteral("&Help"));
+    help->addAction(QStringLiteral("Documentation"), this, [] {
+        QDesktopServices::openUrl(QUrl(QStringLiteral("http://docs.flowcv.org/editor/node_editor_start.html")));
+    });
+    help->addAction(QStringLiteral("About"), this, [this] {
+        QMessageBox::about(this, QStringLiteral("About VisionFlowStudio"),
+            QStringLiteral("VisionFlowStudio 0.0.1\nQt frontend for FlowCV / DSPatch\nBased on FlowCV b09c48e\nGPL-3.0"));
+    });
 
 
     // Fit All

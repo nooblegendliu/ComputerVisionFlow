@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 
 #include <opencv2/core.hpp>
@@ -69,6 +70,8 @@ namespace DSPatch::DSPatchables
 			{
 				"1", "3", "5", "10", "15", "20", "25", "30", "60", "120"
 			});
+		// Upstream persists fps independently of the combo selection.
+		properties_.AddInt("fps", "FPS", 30, 1, (std::numeric_limits<int>::max)(), 1.0f, false);
 
 		// 与原版一致
 		last_time_ = std::chrono::steady_clock::now();
@@ -83,6 +86,12 @@ namespace DSPatch::DSPatchables
 	// ---------------------------------------------------------------
 	void Solid::RefreshProperties()
 	{
+		std::lock_guard<std::recursive_mutex> lock(state_mutex_);
+		const int fpsIndex = properties_.GetW<int>("fps_index");
+		if (fpsIndex != applied_fps_index_) {
+			properties_.Set("fps", GetFpsFromIndex(fpsIndex));
+			applied_fps_index_ = fpsIndex;
+		}
 		const bool isColor = properties_.GetW<bool>("is_color");
 		const bool hasAlpha = properties_.GetW<bool>("has_alpha");
 
@@ -112,11 +121,13 @@ namespace DSPatch::DSPatchables
 		if (!lock.owns_lock()) return;
 
 		// 编辑参数进行同步
+		RefreshProperties();
 		properties_.Sync();
 
 		// ---------------------- Read Property -----------------------
-		const int width = std::clamp(properties_.Get<int>("width"), 2, 10000);
-		const int height = std::clamp(properties_.Get<int>("height"), 2, 10000);
+		const int width = properties_.Get<int>("width");
+		const int height = properties_.Get<int>("height");
+		if (width <= 0 || height <= 0) return;
 
 		const bool isColor = properties_.Get<bool>("is_color");
 		const bool hasAlpha = properties_.Get<bool>("has_alpha");
@@ -128,9 +139,9 @@ namespace DSPatch::DSPatchables
 
 		const int grayValue = std::clamp(properties_.Get<int>("value"), 0, 255);
 
-		const int fpsIndex = properties_.Get<int>("fps_index");
 		// 与原版fps_/fps_time_的计算方式相同
-		const int fps = GetFpsFromIndex(fpsIndex);
+		const int fps = properties_.Get<int>("fps");
+		if (fps <= 0) return;
 		const float fpsTime = (1.0f / static_cast<float>(fps)) * 1000.0f;
 
 		// ---------------------- fps control ----------------------------
@@ -185,6 +196,8 @@ namespace DSPatch::DSPatchables
 	// ------------------------------------------------------------------
 	std::string Solid::GetState()
 	{
+		std::lock_guard<std::recursive_mutex> lock(state_mutex_);
+		RefreshProperties();
 		using nlohmann::json;
 
 		json state = json::object();
@@ -206,7 +219,7 @@ namespace DSPatch::DSPatchables
 		state["value"] = properties_.GetW<int>("value");
 
 		const int fpsIndex = properties_.GetW<int>("fps_index");
-		state["fps"] = GetFpsFromIndex(fpsIndex);
+		state["fps"] = properties_.GetW<int>("fps");
 		state["fps_index"] = fpsIndex;
 		state["is_color"] = properties_.GetW<bool>("is_color");
 		state["has_alpha"] = properties_.GetW<bool>("has_alpha");
@@ -221,6 +234,7 @@ namespace DSPatch::DSPatchables
 	// --------------------------------------------------------------------
 	void Solid::SetState(std::string&& serialized)
 	{
+		std::lock_guard<std::recursive_mutex> lock(state_mutex_);
 		if (serialized.empty())
 			return;
 
@@ -282,23 +296,22 @@ namespace DSPatch::DSPatchables
 		{
 			updates["fps_index"] = state.at("fps_index");
 		}
-		else if (state.contains("fps"))
+		if (state.contains("fps"))
 		{
-			// 兼容只有fps字段的状态文件
-			const int fps = state.at("fps").get<int>();
-
-			const auto it = std::find(kFpsValues.begin(), kFpsValues.end(), fps);
-
-			if (it == kFpsValues.end())
-			{
-				throw std::invalid_argument("Unsupported Solid FPS value");
-			}
-
-			updates["fps_index"] = static_cast<int>(std::distance(kFpsValues.begin(), it));
+			if (!state.at("fps").is_number_integer() || state.at("fps") <= 0)
+				throw std::invalid_argument("Solid FPS must be a positive integer");
+			updates["fps"] = state.at("fps");
 		}
 
 		// ------------------------------ Apply Properties -------------------------------
 		properties_.FromJson(updates);
+		// Restoring the combo selection is not a user selection change.
+		applied_fps_index_ = properties_.GetW<int>("fps_index");
+		for (const char* key : {"width", "height"}) {
+			const int value = properties_.GetW<int>(key);
+			properties_.SetMin(key, (std::min)(2, value));
+			properties_.SetMax(key, (std::max)(10000, value));
+		}
 
 		// 恢复可见性等依赖属性
 		RefreshProperties();

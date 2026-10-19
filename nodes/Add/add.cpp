@@ -68,13 +68,12 @@ namespace DSPatch::DSPatchables
 		// 检查输入图像的类型和尺寸
 		if (in1->type() != in2->type() || in1->size() != in2->size()) return;
 
-		// 判断mask是否有效
-		bool hasMask = false;
-
-		if (mask && !mask->empty() && mask->type() == CV_8UC1 && mask->size() == in1->size())
-		{
-			hasMask = true;
-		}
+		// OpenCV accepts both signed and unsigned 8-bit, single-channel masks.
+		// Like upstream, only a nonempty single-channel input acts as a mask.
+		// An invalid single-channel mask must not become an unmasked add.
+		const bool hasMask = mask && !mask->empty() && mask->channels() == 1;
+		if (hasMask && ((mask->type() != CV_8UC1 && mask->type() != CV_8SC1)
+			|| mask->size() != in1->size())) return;
 
 		cv::Mat frame;
 		if (hasMask) {

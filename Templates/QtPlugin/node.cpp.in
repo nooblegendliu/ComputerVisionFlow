@@ -1,0 +1,100 @@
+// Generated from the FlowCV-compatible VisionFlow template; GPL-3.0.
+#include "@NAME@.hpp"
+#include <cmath>
+#include <stdexcept>
+#include <QLabel>
+#include <QPushButton>
+#include <QSignalBlocker>
+#include <QSpinBox>
+#include <QTimer>
+#include <QVBoxLayout>
+#include <opencv2/core.hpp>
+
+namespace DSPatch::DSPatchables
+{
+@NAME@::@NAME@() : FlowCV::Node(ProcessOrder::InOrder)
+{
+    SetComponentName_("@NAME@");
+    SetComponentCategory_(Category::Category_Other);
+    SetComponentAuthor_("Author");
+    SetComponentVersion_("0.1.0");
+    SetInputCount_(1, {"in"}, {IoType::Io_Type_CvMat});
+    SetOutputCount_(1, {"out"}, {IoType::Io_Type_CvMat});
+    SetEnabled(true);
+}
+
+bool @NAME@::hasNodeUi(VisionFlow::NodeUiRole role) const
+{
+    return role == VisionFlow::NodeUiRole::Controls;
+}
+
+QWidget* @NAME@::createNodeUi(VisionFlow::NodeUiRole role, QWidget* parent)
+{
+    if (!hasNodeUi(role))
+        return nullptr;
+    // Called only on the GUI thread. The host destroys widgets before unloading
+    // this library, including connections and timer callbacks implemented here.
+    auto* panel = new QWidget(parent);
+    auto* layout = new QVBoxLayout(panel);
+    layout->addWidget(new QLabel(QStringLiteral("Gain (%)"), panel));
+    auto* value = new QSpinBox(panel);
+    value->setRange(0, 400);
+    value->setValue(state_->gainPercent.load());
+    layout->addWidget(value);
+    auto* reset = new QPushButton(QStringLiteral("Reset gain"), panel);
+    layout->addWidget(reset);
+    const std::weak_ptr<State> weak = state_;
+    QObject::connect(value, &QSpinBox::valueChanged, panel, [weak](int gain) {
+        if (const auto state = weak.lock())
+            state->gainPercent.store(gain);
+    });
+    QObject::connect(reset, &QPushButton::clicked, panel, [value] { value->setValue(100); });
+    auto* refresh = new QTimer(panel);
+    QObject::connect(refresh, &QTimer::timeout, panel, [weak, value] {
+        if (const auto state = weak.lock()) {
+            const QSignalBlocker blocker(value);
+            value->setValue(state->gainPercent.load());
+        }
+    });
+    refresh->start(100);
+    return panel;
+}
+
+std::string @NAME@::GetState()
+{
+    return nlohmann::json{{"gain", state_->gainPercent.load() / 100.0}}.dump();
+}
+
+void @NAME@::SetState(std::string&& serialized)
+{
+    if (serialized.empty())
+        return;
+    const auto state = nlohmann::json::parse(serialized);
+    if (!state.is_object())
+        throw std::invalid_argument("@NAME@ state must be an object");
+    if (!state.contains("gain"))
+        return;
+    if (!state.at("gain").is_number())
+        throw std::invalid_argument("@NAME@ gain must be numeric");
+    const double gain = state.at("gain").get<double>();
+    if (!std::isfinite(gain) || gain < 0.0 || gain > 4.0)
+        throw std::invalid_argument("@NAME@ gain must be between 0 and 4");
+    state_->gainPercent.store(static_cast<int>(std::lround(gain * 100.0)));
+}
+
+void @NAME@::Process_(SignalBus const& inputs, SignalBus& outputs)
+{
+    const auto* frame = inputs.GetValue<cv::Mat>(0);
+    if (!frame || frame->empty())
+        return;
+    if (!IsEnabled()) {
+        outputs.SetValue(0, *frame);
+        return;
+    }
+    cv::Mat result;
+    frame->convertTo(result, -1, state_->gainPercent.load() / 100.0);
+    outputs.SetValue(0, result);
+}
+
+EXPORT_PLUGIN(@NAME@)
+}

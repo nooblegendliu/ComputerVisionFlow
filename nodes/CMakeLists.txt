@@ -1,4 +1,4 @@
-find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc)
+find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc video features2d dnn)
 
 # MSVC Debug uses a different CRT/STL ABI. Do not silently fall back to
 # Release libraries when the local OpenCV installation has no Debug build.
@@ -23,6 +23,51 @@ endif()
 # ------------------------------------------------------------------------
 
 add_library(VisionFlowNodes STATIC
+    HistogramViewer/histogram_viewer.cpp
+    DepthViewer3d/depth_viewer_3d.cpp
+    DrawTools/draw_text.cpp
+    DrawTools/draw_number.cpp
+    DrawTools/draw_datetime.cpp
+    DrawTools/draw_json.cpp
+    BlobDetector/blob_detector.cpp
+    HoughCircles/hough_circles.cpp
+    HoughLines/hough_lines.cpp
+    LineIntersect/line_intersect.cpp
+    BackgroundSubtraction/background_subtraction.cpp
+    GetOptimalDft/get_optimal_dft.cpp
+    DiscreteFourierTransform/discrete_fourier_transform.cpp
+    DiscreteCosineTransform/discrete_cosine_transform.cpp
+    Magnitude/magnitude.cpp
+    RndNoise/rnd_noise.cpp
+    SobelFilter/sobel_filter.cpp
+    ScharrFilter/scharr_filter.cpp
+    LaplacianFilter/laplacian_filter.cpp
+    Sharpen/sharpen.cpp
+    Colorcorrect/ColorCorrect.cpp
+    ColorReduce/color_reduce.cpp
+    Split/split.cpp
+    Combine/combine.cpp
+    Crop/crop.cpp
+    Transform/transform.cpp
+    PerspectiveWarp/perspective_warp.cpp
+    CopyMakeBorder/copy_make_border.cpp
+    AbsDiff/abs_diff.cpp
+    AddWeighted/add_weighted.cpp
+    Subtract/subtract.cpp
+    Multiply/multiply.cpp
+    Divide/divide.cpp
+    Max/max.cpp
+    Min/min.cpp
+    Bitwise/bitwise.cpp
+    Mean/mean.cpp
+    ScaleAbs/scale_abs.cpp
+    Normalize/normalize.cpp
+    ConvertColor/convert_color.cpp
+    Threshold/threshold.cpp
+    Morphology/Morphology.cpp
+    Contours/contours.cpp
+    JsonViewer/json_viewer.cpp
+    GetSize/get_size.cpp
 
     # Node registration includes
     internal_nodes.h
@@ -77,4 +122,9 @@ target_link_libraries(VisionFlowNodes
         nlohmann_json::nlohmann_json 
         opencv_core
         opencv_imgproc
+        opencv_features2d
+        opencv_video
 )
+
+add_subdirectory(DNN)
+target_link_libraries(VisionFlowNodes PUBLIC opencv_dnn)

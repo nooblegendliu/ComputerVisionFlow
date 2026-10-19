@@ -1,0 +1,4 @@
+# Included after VisionFlowNodes is declared in nodes/CMakeLists.txt.
+target_sources(VisionFlowNodes PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/@NAME@.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/@NAME@.cpp")

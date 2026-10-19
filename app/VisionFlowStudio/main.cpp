@@ -1,8 +1,17 @@
 #include <exception>
 
+#include <QtCore/QByteArray>
+#include <QtCore/QDir>
+#include <QtCore/QCoreApplication>
 #include <QtCore/QString>
+#include <QtCore/QCommandLineParser>
+#include <QtCore/QStandardPaths>
+#include <logging/logger.h>
+#include "StudioSettings.h"
+
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QMessageBox>
+#include <QtWidgets/QStatusBar>
 
 #include <flowcv_manager.h>
 
@@ -15,17 +24,36 @@ int main(int argc, char* argv[])
 	QApplication::setOrganizationName(QStringLiteral("VisionFlow"));
 
 	try {
+		QCommandLineParser parser;
+		parser.addHelpOption();
+		QCommandLineOption configOption({"c", "cfg"}, "Default Config File Override", "path");
+		parser.addOption(configOption);
+		parser.process(app);
+		const QString configPath = parser.isSet(configOption) ? parser.value(configOption)
+			: QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) + "/flowcv_editor.cfg";
+		FlowCV::FlowLogger logger;
+		auto settings = StudioSettings::load(configPath);
+		settings.applyLogLevel();
 		// Manager必须比主窗口、画布和图模型存活更久
 		FlowCV::FlowCV_Manager manager;
 
-		manager.SetBufferCount(0);
+		// ------------------- Load Dynamic Plugin ---------------------
+		const QString pluginDirectory = QDir(QCoreApplication::applicationDirPath())
+			.filePath(QStringLiteral("Plugins"));
 
-		MainWindow window(manager);
+		settings.configureRuntime(manager, pluginDirectory);
+
+
+		// -------------------- Create Main Window ------------------------
+		MainWindow window(manager, nullptr, &settings);
 
 		// 与原版FlowCV一致，使用DSPatch内部自动执行机制
 		manager.StartAutoTick();
 
 		window.show();
+		if (!settings.loadError.isEmpty())
+			window.statusBar()->showMessage(
+				QStringLiteral("Could not load settings; using defaults: %1").arg(settings.loadError), 15000);
 
 		const int result = app.exec();
 
@@ -35,6 +63,7 @@ int main(int argc, char* argv[])
 		return result;
 	}
 	catch (std::exception const& error) {
+
 		QMessageBox::critical(
 			nullptr, 
 			QStringLiteral("VisionFlowStudio"),
@@ -42,5 +71,4 @@ int main(int argc, char* argv[])
 
 		return 1;
 	}
-
 }

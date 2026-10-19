@@ -52,9 +52,12 @@ namespace FlowCV
             LOG_INFO("Loading plugin: {}", filename);
 
             // 初始化期间使用RAII管理句柄
-            auto plugin = std::make_unique<DSPatch::Plugin>(filename);
+            auto plugin = std::make_shared<DSPatch::Plugin>(filename);
 
-            if (!plugin->IsLoaded()) continue;
+            if (!plugin->IsLoaded()) {
+                LOG_WARN("Failed to load plugin (check dependencies and Create export): {}", filename);
+                continue;
+            }
 
             // 临时实例用于读取节点信息
             auto instance = plugin->Create();
@@ -66,7 +69,7 @@ namespace FlowCV
 
             PluginInfo info{};
 
-            info.plugin_handle = plugin.get();
+            info.plugin_handle = plugin;
             info.plugin_desc.name = instance->GetComponentName();
             info.plugin_desc.category = instance->GetComponentCategory();
             info.plugin_desc.author = instance->GetComponentAuthor();
@@ -80,8 +83,7 @@ namespace FlowCV
             // 确保临时组件先于动态库释放
             instance.reset();
 
-            // 所有权转移至plugins_
-            plugin.release();
+            // Instances and optional plugin widgets can retain a module lease.
         }
 
         // 保留FlowCV排序行为
@@ -104,9 +106,7 @@ namespace FlowCV
     {
         for (auto& plugin : plugins_)
         {
-            delete plugin.plugin_handle;
-
-            plugin.plugin_handle = nullptr;
+            plugin.plugin_handle.reset();
         }
 
         plugins_.clear();
@@ -157,8 +157,16 @@ namespace FlowCV
     {
         for (auto const& p : plugins_) {
             if (p.plugin_desc.name == name) {
-                std::shared_ptr<DSPatch::Component> pi = p.plugin_handle->Create();
-                return pi;
+                struct InstanceLease {
+                    std::shared_ptr<DSPatch::Plugin> module;
+                    std::shared_ptr<DSPatch::Component> component;
+                };
+                auto lease = std::make_shared<InstanceLease>();
+                lease->module = p.plugin_handle;
+                lease->component = p.plugin_handle->Create();
+                if (!lease->component) return nullptr;
+                auto* component = lease->component.get();
+                return std::shared_ptr<DSPatch::Component>(std::move(lease), component);
             }
         }
         return nullptr;

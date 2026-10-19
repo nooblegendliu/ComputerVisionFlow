@@ -52,6 +52,14 @@ public:
     }
 
     QAction* deleteSelectionAction() const;
+    QAction* showFlowAction() const { return showFlowAction_; }
+
+    // Uses FlowCV's nodes/connections/editor clipboard schema.
+    nlohmann::json selectedSubgraph() const;
+    bool pasteSubgraph(const nlohmann::json& state, QPointF position);
+    bool copySelection();
+    bool pasteAt(QPointF position);
+    QString nodeCategory(QString const& nodeType) const;
 
     // Node Library
     QStringList availableNodeTypes() const;
@@ -80,11 +88,17 @@ public Q_SLOTS:
     void deleteSelection();
     void zoomFitAll();
     void resetZoom();
+    void cutSelection();
+    void pasteSelection();
+    void toggleSelectedEnabled();
+    void zoomFitSelection();
+    void showNodeSearch();
 
 Q_SIGNALS:
     void selectedFlowNodeChanged(std::uint64_t flowId);
     void graphChanged(std::uint64_t nodeCount, std::uint64_t wireCount);
     void operationFailed(QString const& message);
+    void nodeUiRequested(std::uint64_t flowId);
 
 private:
     QMenu* createCanvasMenu(QPointF scenePosition);
@@ -92,6 +106,10 @@ private:
     void showNodeMenu(QtNodes::NodeId nodeId);
 
     void notifyGraphChanged();
+    void populateNodeMenu(QMenu* menu, QPointF position,
+        QtNodes::ConnectionId pending = {QtNodes::InvalidNodeId, QtNodes::InvalidPortIndex,
+            QtNodes::InvalidNodeId, QtNodes::InvalidPortIndex});
+    void createNodeFromPort(QString const& type, QPointF position, QtNodes::ConnectionId pending);
 
 private:
     FlowCV::FlowCV_Manager& manager_;
@@ -101,4 +119,5 @@ private:
     QtNodes::BasicGraphicsScene* scene_ = nullptr;
 
     QtNodes::GraphicsView* view_ = nullptr;
+    QAction* showFlowAction_ = nullptr;
 };

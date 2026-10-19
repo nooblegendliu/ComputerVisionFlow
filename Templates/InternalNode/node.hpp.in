@@ -1,0 +1,14 @@
+// Generated from the FlowCV-compatible VisionFlow template; GPL-3.0.
+#pragma once
+#include <flowNode.h>
+
+namespace DSPatch::DSPatchables
+{
+class @NAME@ final : public FlowCV::Node
+{
+public:
+    @NAME@();
+protected:
+    void Process_(SignalBus const& inputs, SignalBus& outputs) override;
+};
+}
