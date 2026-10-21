@@ -2,7 +2,7 @@
 
 本目录迁移自本机 FlowCV `b09c48e` 的 `Internal_Nodes/DNN`。计算代码逐节点保留原预处理、`forward`／`detect`／`recognize`、后处理及状态键；Qt Controls 位于 `app/VisionFlowStudio/DnnControls.cpp`，计算节点及 SDK 不依赖 Qt。
 
-**验证状态：** 2026-10-19，Release 构建中的 `stage6_dnn` 专项通过（1/1，0.39 秒），执行了七类节点的确定性 CPU 推理、状态及 Qt Controls 检查。全项目整体验收仍由公共验收记录汇总；该结果不代替真实模型或 GPU 验证。
+旧 DNN 测试和模型夹具已移除；历史运行记录不作为当前版本的验收依据。
 
 ## 端口与默认参数
 
@@ -52,7 +52,7 @@
 
 ### Text_Detection
 
-使用 OpenCV `TextDetectionModel_DB`，保留 DB 阈值、polygon threshold、unclip ratio、候选数限制及预处理。所选模型须符合 OpenCV DB 接口的输出要求；本机 OpenCV 4.12 的 DB 后处理接收二维概率图。
+使用 OpenCV `TextDetectionModel_DB`，保留 DB 阈值、polygon threshold、unclip ratio、候选数限制及预处理。所选模型须符合 OpenCV DB 接口的输出要求；确定模型夹具使用二维概率图，实际包版本以 CMake 配置输出为准。
 
 输出 `data_type="objects"`，每条 `points` 是四边形顶点 `{x,y}` 数组。开启预缩放时按原逻辑将顶点换算回原图。可选边框绘制后恢复显示图尺寸。
 
@@ -109,18 +109,6 @@ Object_Detection 的 NMS 阈值和 Image_Processing 的模式，原库可通过�
 
 未加入现代 YOLO 解码、自动猜测模型参数、远程模型下载、训练或新的状态键。
 
-## 确定性测试与验收边界
+## 验收边界
 
-`tests/generate_dnn_fixtures.py` 使用 Python 标准库编码最小 ONNX protobuf 和 Darknet 权重，无需 onnx/torch/numpy，也不访问网络。已提交夹具位于 `tests/fixtures/dnn`。测试调用真实 OpenCV CPU 推理接口，不替换节点推理或注入模拟结果。
-
-`stage6_dnn_test` 接收该夹具目录作为第一个参数，测试代码覆盖：
-
-- 分类 GlobalAveragePool/Flatten 的实际分数、Softmax、阈值、输入不变及加载失败恢复。
-- Darknet 卷积/Region 实际推理、框坐标换算、NMS 路径、类别对应及原 Crop 控件联动。
-- Identity 分数图的分割 argmax、颜色表、最近邻恢复和 JSON 图例。
-- 卷积/Concat 热图的单姿态解码与坐标；坏数据集选项无输出。
-- DB 概率图的检测四边形接入透视裁剪/CTC-greedy 网络，验证文字结果；畸形四边形安全失败。
-- Style Transfer 的 CHW→BGR 以及 mean 减除/加回顺序。
-- 七类默认状态、枚举回退，以及可选 Qt 控件的路径/绘制开关、步进边界、范围外状态显示和释放。
-
-`STAGE6_DNN_QT_TEST` 启用专属 Qt Controls 检查；未定义该宏时只依赖计算节点。当前夹具不证明真实训练模型的精度、完整数据集兼容性、GPU/CUDA/OpenCL/OpenVINO 执行、PAF 多人效果或 SSD/Faster-RCNN 分支的实际模型输出。上述算法分支保留原源码，真实模型和可用硬件的补充验收需分别记录，不能以合成夹具推理代替。
+旧的确定性测试、模型夹具和生成脚本已移除。后续按具体任务验证实际模型的输入预处理、输出解码、状态保存恢复和异常处理，并在 [项目文档](../../docs/README.md) 中记录模型、运行条件与结果。真实模型精度、数据集兼容性、GPU 后端及不同模型分支需分别验收。

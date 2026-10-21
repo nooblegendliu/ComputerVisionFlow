@@ -1,6 +1,8 @@
 # 内置节点
 
-`VisionFlowNodes` 是内置节点静态库，通过 `VisionFlow::Nodes` 链接。当前 [构建清单](CMakeLists.txt) 与 [节点工厂](../managers/node_manager.cpp) 已注册 58 个节点：`Solid`、`Add`、`Blur`、`Canny`（类名 CannyFilter）、`Resize`、`Viewer`、`Convert_Color`、`Threshold`、`Morphology`、`Contours`、`Json_Viewer`、`Get_Size`，以及阶段 2A 的 11 个节点、阶段 2B 的 Crop、Transform、Perspective_Warp、Copy_Make_Border、阶段 2C 的 Color_Correct、Color_Reduce、Split、Combine、阶段 2D 的 Sobel、Scharr、Laplacian、Sharpen，以及阶段 2E 的 Get_Optimal_DFT_Size、DFT、DCT、Magnitude、Rnd_Noise，以及阶段 3 首批 Background_Subtraction、Blob_Detector、Hough_Circles、Hough_Lines、Line_Intersections，以及阶段 3C 的 Draw_Text、Draw_Number、Draw_Date_Time、Draw_JSON，以及 Histogram、7 个 DNN 节点和 Depth_Viewer_3D。节点继承 [FlowCV::Node](../sdk/flowNode.h)，使用 DSPatch `Process_()` 和 SignalBus 计算、传递数据，不依赖 Qt 或 `editor`。模块关系见 [架构说明](../docs/architecture.md)，整体完成状态与验证范围见 [开发进度](../docs/development-status.md)。注册数量不代表所有行为已经验收，阶段安排见 [移植计划](../docs/flowcv-migration-plan.md)。
+项目规划与任务统一从 [项目文档](../docs/README.md) 读取。旧项目测试与示例已移除；本文中的历史测试描述不代表当前可运行的测试或本次验收结果。
+
+`VisionFlowNodes` 是内置节点静态库，通过 `VisionFlow::Nodes` 链接。当前 [构建清单](CMakeLists.txt) 与 [节点工厂](../managers/node_manager.cpp) 已注册 58 个节点：`Solid`、`Add`、`Blur`、`Canny`（类名 CannyFilter）、`Resize`、`Viewer`、`Convert_Color`、`Threshold`、`Morphology`、`Contours`、`Json_Viewer`、`Get_Size`，以及阶段 2A 的 11 个节点、阶段 2B 的 Crop、Transform、Perspective_Warp、Copy_Make_Border、阶段 2C 的 Color_Correct、Color_Reduce、Split、Combine、阶段 2D 的 Sobel、Scharr、Laplacian、Sharpen，以及阶段 2E 的 Get_Optimal_DFT_Size、DFT、DCT、Magnitude、Rnd_Noise，以及阶段 3 首批 Background_Subtraction、Blob_Detector、Hough_Circles、Hough_Lines、Line_Intersections，以及阶段 3C 的 Draw_Text、Draw_Number、Draw_Date_Time、Draw_JSON，以及 Histogram、7 个 DNN 节点和 Depth_Viewer_3D。节点继承 [FlowCV::Node](../sdk/flowNode.h)，使用 DSPatch `Process_()` 和 SignalBus 计算、传递数据，不依赖 Qt 或 `editor`。
 
 ## 阶段 3：背景与检测
 
@@ -61,7 +63,7 @@ Line_Intersections 状态为 `min_angle=60`、`min_dist=10`、`draw_points=true`
 
 [计算节点](Viewer/Viewer.cpp) 是终端缓存节点：输入 `0: in` 为 `CvMat`，没有输出端口，也没有可编辑节点参数。初始缓存为 `640 × 480` 的黑色 `CV_8UC3` 图像。收到非空图像时复制到缓存；输入信号缺失且距上次有效输入超过 `500 ms` 时将缓存清零。节点状态不包含图像缓存。
 
-`Viewer::GetFrameCopy()` 在互斥锁保护下返回图像深拷贝。[Qt ViewerPanel](../app/VisionFlowStudio/ViewerPanel.cpp) 经通用 Main 工厂创建，可见时按 `33 ms` 定时器读取缓存。支持 `CV_8UC1/3/4` 和 `CV_16UC1/16SC1/32FC1/64FC1`、通道选择、伪彩缩放、Free/Width/Height 与 Ctrl 像素检查。显示转换不修改节点缓存，选项属于独立面板，不写入 Viewer 空状态。使用方法见 [Studio 指南](../docs/studio-guide.md)。该定时器只刷新界面，隐藏窗口不会停止计算；Viewer 仍保留原库处理时自动启用的行为。
+`Viewer::GetFrameCopy()` 在互斥锁保护下返回图像深拷贝。[Qt ViewerPanel](../app/VisionFlowStudio/ViewerPanel.cpp) 经通用 Main 工厂创建，可见时按 `33 ms` 定时器读取缓存。支持 `CV_8UC1/3/4` 和 `CV_16UC1/16SC1/32FC1/64FC1`、通道选择、伪彩缩放、Free/Width/Height 与 Ctrl 像素检查。显示转换不修改节点缓存，选项属于独立面板，不写入 Viewer 空状态。该定时器只刷新界面，隐藏窗口不会停止计算；Viewer 仍保留原库处理时自动启用的行为。
 
 ## Convert_Color
 
@@ -173,7 +175,7 @@ Mean 输出 `{"data_type":"mean","ref_frame":{"w":宽,"h":高},"data":[{"mean":[
 
 Controls 的颜色仅在 Constant 显示，但所有颜色字段一直保存。状态仍接受原库负增量；尺寸加减使用较宽整数防溢出，不支持的输入或过大输出不逃出计算线程。禁用直接透传图像。
 
-本批测试限定为上述复杂 JSON、组合变换、动态尺寸/颜色和控件生命周期，未扩充简单算术节点测试。详细执行范围见 [开发进度](../docs/development-status.md)。
+本批测试限定为上述复杂 JSON、组合变换、动态尺寸/颜色和控件生命周期，未扩充简单算术节点测试。
 
 ## 阶段 2C：颜色与通道
 
@@ -201,7 +203,7 @@ Gamma 仍允许原界面的 0：LUT 将小于 255 的输入映射为 0，255 保
 
 Split 和 Combine 均保留 `null` 状态，且每次处理时自动启用；界面上的禁用不会让它们持续停止。Combine 没有专属界面。
 
-本批只为 Color_Correct 的复杂计算、状态、异常与 Qt 生命周期增加专项测试。Color_Reduce、Split、Combine 仅源码核对和构建检查，不声称完成专项运行验收；最终执行记录见 [开发进度](../docs/development-status.md)。
+本批只为 Color_Correct 的复杂计算、状态、异常与 Qt 生命周期增加专项测试。
 
 ## 阶段 2D：空间滤波
 
@@ -229,7 +231,7 @@ Mode 2 的界面范围为 0–5：先转灰度，再以原深度、3×3 核和 `
 
 切回 Mode 1 时沿原 UI 将大于 3 的值限制为 3；尚未经过界面刷新而直接传入的 Mode 1 超限参数会被计算侧拒绝，避免原库使用未初始化卷积核。禁用与 Mode 1 的 amount≤0 均复制原图，输出拥有独立缓冲。缺失/空输入无输出，错误后可由有效输入恢复。
 
-Sobel 按明确要求首先单独完成计算测试，并补充 Qt 核增减、恢复和控件生命周期测试；Sharpen 覆盖两种复杂模式。Scharr/Laplacian 仅源码核对和构建检查，不增加专项计算测试。实际执行结果见 [开发进度](../docs/development-status.md)。
+Sobel 按明确要求首先单独完成计算测试，并补充 Qt 核增减、恢复和控件生命周期测试；Sharpen 覆盖两种复杂模式。Scharr/Laplacian 仅源码核对和构建检查，不增加专项计算测试。
 
 ## 阶段 2E：频域与生成
 
@@ -263,7 +265,7 @@ Width/Height 的默认界面范围沿原库为 1–8000；恢复状态只要求�
 
 必要适配：参数由同步快照读取，非法状态原子拒绝；OpenCV 异常不退出工作线程。Rnd_Noise 修复原 SetState 恢复值被临时默认值覆盖、恢复 fps 未更新等待周期的问题；用 `sleep_until` 替代忙等但保留截断周期和 try-lock 语义。随机源临时帧与时间戳不写入工程。
 
-本批只为 DFT/DCT 的复杂转换和 Rnd_Noise 的状态、模式及节奏增加专项测试；Get_Optimal_DFT_Size 与 Magnitude 仅源码核对和构建检查。最终运行结果见 [开发进度](../docs/development-status.md)。
+本批只为 DFT/DCT 的复杂转换和 Rnd_Noise 的状态、模式及节奏增加专项测试；Get_Optimal_DFT_Size 与 Magnitude 仅源码核对和构建检查。
 
 ## 阶段 3C：文字、数值、日期与 JSON 标注
 
@@ -280,7 +282,7 @@ Draw_JSON 的 JSON Pointer 相对于 `data[json_data_index]`；实际解析到�
 
 沿用原输出门槛：启用的 Draw_JSON 在缺少或空 JSON 输入时不输出；非空 JSON 但没有 data、data 为空、数据索引越界或列表为空时输出未标注的图像副本。临时 JSON、错误状态、列表版本和界面草稿不写入工程。恢复合法状态不以界面范围截断；GUI 编辑范围保留原设置。
 
-必要适配仅限参数同步、原子恢复、固定字符缓冲安全、格式/JSON/OpenCV 错误保护，以及字段名含 `/`、`~` 时正确转义 JSON Pointer。Draw_Text/Draw_Number 按要求仅源码核对与构建；复杂日期格式、JSON 解析/列表和真实插件工程链路的验证结果见 [开发进度](../docs/development-status.md)。
+必要适配仅限参数同步、原子恢复、固定字符缓冲安全、格式/JSON/OpenCV 错误保护，以及字段名含 `/`、`~` 时正确转义 JSON Pointer。
 
 ## 阶段 3D / 6：直方图、DNN 与三维显示
 
@@ -304,4 +306,4 @@ Depth_Viewer_3D 输入 `color:CvMat, depth:CvMat, intrin:JSON`，无输出，Con
 
 迁移原库节点时核对端口、参数、处理和状态格式，将界面逻辑放在可选 Editor / App 适配层。当前属性系统支持 Bool、Int、Float、Option、String、FilePath，详见 [SDK 属性定义](../sdk/flowProperties.h)。复杂 Controls 或 Main 使用 NodeUiRegistry 注册 QWidget 工厂，主窗口不新增具体节点判断。可使用 [PluginMaker 内部节点模板](../tools/README.md) 生成并显式注册。
 
-节点库当前查找并链接 OpenCV `core`、`imgproc`、`video`、`features2d`、`dnn`。本机通过 `CMakeUserPresets.json` 设置 `OpenCV_DIR`，指向与编译器、架构及构建配置匹配的安装包；MSVC Debug 需要对应的 Debug 库。具体构建方式见 [根目录 README](../README.md)。
+节点库当前查找并链接 OpenCV `core`、`imgproc`、`video`、`features2d`、`dnn`。本机通过 `CMakeUserPresets.json` 设置 `OpenCV_DIR`，指向与编译器、架构及构建配置匹配的安装包；MSVC Debug 需要对应的 Debug 库。具体构建方式见 [Windows 构建](../docs/build.md)。

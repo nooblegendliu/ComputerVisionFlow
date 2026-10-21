@@ -181,6 +181,20 @@ bool VisionFlowGraphModel::rebuildFromManager(bool resetPositions)
     flowToQt_.swap(newFlowToQt);
     positions_.swap(newPositions);
 
+    // 新建、打开工程时丢弃旧工程的实例显示名称。
+    // 普通同步只清理已经不存在的 FlowCV ID。
+    if (resetPositions) {
+        customDisplayNames_.clear();
+    } else {
+        for (auto it = customDisplayNames_.begin(); it != customDisplayNames_.end();) {
+            if (flowToQt_.find(it->first) == flowToQt_.end()) {
+                it = customDisplayNames_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     // QtNodes 重建时需要重新计算图形尺寸。
     sizes_.clear();
 
@@ -483,6 +497,42 @@ void VisionFlowGraphModel::addConnection(
 // Node Data
 // ----------------------------------------------------------------
 
+QString VisionFlowGraphModel::customNodeDisplayName(QtNodes::NodeId nodeId) const
+{
+    const std::uint64_t flowId = flowNodeId(nodeId);
+    const auto it = customDisplayNames_.find(flowId);
+    return it != customDisplayNames_.end() ? it->second : QString{};
+}
+
+bool VisionFlowGraphModel::setNodeDisplayName(
+    QtNodes::NodeId nodeId, const QString& name)
+{
+    if (!nodeExists(nodeId)) {
+        return false;
+    }
+
+    const std::uint64_t flowId = flowNodeId(nodeId);
+    const QString displayName = name.trimmed();
+    const auto it = customDisplayNames_.find(flowId);
+
+    if (displayName.isEmpty()) {
+        if (it == customDisplayNames_.end()) {
+            return true;
+        }
+        customDisplayNames_.erase(it);
+    } else {
+        if (it != customDisplayNames_.end() && it->second == displayName) {
+            return true;
+        }
+        customDisplayNames_[flowId] = displayName;
+    }
+
+    // BasicGraphicsScene 监听 nodeUpdated，自动重新计算标题宽度及连线。
+    Q_EMIT nodeUpdated(nodeId);
+    Q_EMIT nodeDisplayNameChanged(nodeId);
+    return true;
+}
+
 QVariant VisionFlowGraphModel::nodeData(
     QtNodes::NodeId nodeId,
     QtNodes::NodeRole role) const
@@ -516,10 +566,15 @@ QVariant VisionFlowGraphModel::nodeData(
     case QtNodes::NodeRole::CaptionVisible:
         return true;
 
-    case QtNodes::NodeRole::Caption:
+    case QtNodes::NodeRole::Caption: {
+        const QString customName = customNodeDisplayName(nodeId);
+        if (!customName.isEmpty()) {
+            return customName;
+        }
         return QStringLiteral("%1_%2")
             .arg(QString::fromStdString(info.desc.name))
             .arg(info.node_ptr->GetInstanceCount());
+    }
 
     case QtNodes::NodeRole::Style: {
         // 保留 QVariantMap 形式：
@@ -768,6 +823,7 @@ bool VisionFlowGraphModel::deleteNode(QtNodes::NodeId nodeId)
     qtToFlow_.erase(nodeId);
     flowToQt_.erase(flowId);
     positions_.erase(nodeId);
+    customDisplayNames_.erase(flowId);
 
     // 新增：同步清除画布尺寸缓存。
     sizes_.erase(nodeId);

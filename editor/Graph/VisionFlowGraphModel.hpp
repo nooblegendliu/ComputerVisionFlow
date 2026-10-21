@@ -6,6 +6,7 @@
 
 #include <QtCore/QPointF>
 #include <QtCore/QSize>
+#include <QtCore/QString>
 #include <QtCore/QVariant>
 
 #include <QtNodes/AbstractGraphModel>
@@ -28,6 +29,11 @@ public:
 	std::uint64_t flowNodeId(QtNodes::NodeId nodeId) const noexcept;
 
 	QtNodes::NodeId qtNodeId(std::uint64_t flowId) const noexcept;
+
+    // 仅返回自定义实例显示名；没有重命名时返回空字符串。
+    QString customNodeDisplayName(QtNodes::NodeId nodeId) const;
+    // 空白名称恢复默认标题；不修改 FlowCV 的节点类型或真实 ID。
+    bool setNodeDisplayName(QtNodes::NodeId nodeId, const QString& name);
 
 	// 用于SetState/NewState或外部修改运行图之后，重新读取Manager数据，并通知QtNodes整体刷新
 	// 参数为true时不复用原画布的位置
@@ -112,6 +118,7 @@ public:
 Q_SIGNALS:
     void nodeAboutToBeRemoved(std::uint64_t flowId);
     void nodeEnabledChanged(QtNodes::NodeId nodeId);
+    void nodeDisplayNameChanged(QtNodes::NodeId nodeId);
 
 private:
 	bool getNodeInfo(
@@ -138,4 +145,7 @@ private:
 	std::unordered_map<QtNodes::NodeId, QPointF> positions_;
 	// 新增：保存QtNodes自动计算的节点尺寸
 	std::unordered_map<QtNodes::NodeId, QSize> sizes_;
+
+    // 编辑器专有状态：以真实 FlowCV 节点 ID 绑定实例显示名称。
+    std::unordered_map<std::uint64_t, QString> customDisplayNames_;
 };

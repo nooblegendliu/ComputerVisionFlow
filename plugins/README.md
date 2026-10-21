@@ -1,6 +1,8 @@
 # 动态插件
 
-当前十三个生产插件 ImageLoader.fp、ImageWriter.fp、ShapeColorizer.fp、ShapeCounter.fp、SimpleBlobTracker.fp、VideoLoader.fp、VideoWriter.fp、VideoCapture.fp、CsvFile.fp、UdpSend.fp、TcpSend.fp、OscSend.fp、SerialSend.fp 已接入构建、启动加载、节点菜单及 Qt 属性面板。Studio 启动时递归扫描程序旁的 `Plugins`，并非递归扫描 Edit → Settings 保存的额外目录；设置修改后重启生效。节点名称沿用 `Image_Loader`、`Image_Writer`、`Shape_Colorizer`、`Shape_Counter`、`Simple_Blob_Tracker`。创建实例仍通过 `DSPatch::Plugin` 的 `Create` 导出，Manager 保留插件优先于同名内置节点的规则。
+原 FlowCV 基准的十三个插件 ImageLoader.fp、ImageWriter.fp、ShapeColorizer.fp、ShapeCounter.fp、SimpleBlobTracker.fp、VideoLoader.fp、VideoWriter.fp、VideoCapture.fp、CsvFile.fp、UdpSend.fp、TcpSend.fp、OscSend.fp、SerialSend.fp 已接入构建、启动加载、节点菜单及 Qt 属性面板。Studio 启动时递归扫描程序旁的 `Plugins`，并非递归扫描 Edit → Settings 保存的额外目录；设置修改后重启生效。节点名称沿用 `Image_Loader`、`Image_Writer`、`Shape_Colorizer`、`Shape_Counter`、`Simple_Blob_Tracker`。创建实例仍通过 `DSPatch::Plugin` 的 `Create` 导出，Manager 保留插件优先于同名内置节点的规则。
+
+当前另外构建 `DemoWaferLocator.fp`，组件名为 `Demo_Wafer_Locator`，共 14 个动态插件目标。该演示使用通用 Properties，没有专属 Qt Main；接口、样本和未验收边界见 [IndustrialDemo](IndustrialDemo/README.md)。原库 13 插件的固定契约不因增加演示而改变。
 
 ## ImageLoader
 
@@ -10,7 +12,7 @@
 
 保留原版行为：图片按 8-bit BGR 彩色模式解码、缓存并按 FPS 重复输出；空路径或读取失败不产生图像；处理时自动启用源节点；使用 `InOrder`、互斥锁及原有忙等限帧方式。重新提交同一路径会重新读取文件。读取失败写入 stderr，尚无节点内错误提示。
 
-ImageLoader 的必要适配包括：派生现有 `FlowCV::Node` 接入属性桥，用通用 String / FilePath 属性和 Qt 控件替代 ImGui；以 UTF-8 路径打开文件并调用 `imdecode(IMREAD_COLOR)`，支持 Windows 中文文件名；恢复状态时校验并实际应用 FPS。JSON 继续保存 `image_path`、`fps`、`fps_index`，支持原版格式。插件入口和调度机制保持不变；公共界面补齐期间，仅将 DSPatch 启用标记改为原子类型以消除自启用与 GUI 状态读取的竞态，详见 [必要差异](../docs/development-status.md)。
+ImageLoader 的必要适配包括：派生现有 `FlowCV::Node` 接入属性桥，用通用 String / FilePath 属性和 Qt 控件替代 ImGui；以 UTF-8 路径打开文件并调用 `imdecode(IMREAD_COLOR)`，支持 Windows 中文文件名；恢复状态时校验并实际应用 FPS。JSON 继续保存 `image_path`、`fps`、`fps_index`，支持原版格式。
 
 ## ImageWriter
 
@@ -74,22 +76,12 @@ Qt Reset Tracking 和 start=true 请求复位；start 持续 true 会每帧复�
 
 ## 验证
 
-在已初始化 MSVC 环境的开发者 PowerShell 中：
-
-```powershell
-cmake --preset local-x64-release -DVISIONFLOW_BUILD_TESTS=ON
-cmake --build --preset local-x64-release
-ctest --test-dir out/build/local-x64-release --output-on-failure
-```
-
-测试从真实 `.fp` 创建实例，不把 ImageLoader 或 ImageWriter 实现静态链接进测试程序。`image_writer_test` 覆盖中文路径、输出像素、请求处理、禁用/空输入、错误恢复及 `null` 状态；启用 Studio 时另外覆盖 Qt 文件选择、写入按钮和 UI 持有动态库租约的生命周期。具体执行结果见 [开发进度](../docs/development-status.md)。
-
-阶段 3B 的 `stage3b_colorizer`、`stage3b_counter`、`stage3b_tracker` 也均加载真实 `.fp`，不静态链接插件实现；覆盖复杂计算、边界、跨帧状态、Qt 编辑与模块租约。`phase1_pipeline` 增加 `Blob_Detector → Shape_Colorizer → Shape_Counter` 和 Blob→Tracker 分支，验证分类/计数/轨迹、复制、保存重开、多缓冲执行及界面销毁。关闭 Studio 的计算构建也执行三个插件专项并检查无 Qt DLL 依赖，最终结果见开发进度。
+旧插件测试与夹具已移除。后续修改应按任务验证真实插件加载、状态保存恢复、计算结果和界面生命周期，实际结果记录在 [项目文档](../docs/README.md) 的对应任务中。
 
 ## 阶段 4 / 5：视频与导出通信
 
 三个视频插件复用原 OpenCV videoio 和平台设备枚举。契约、所有状态字段与必要修复分别见 [VideoLoader](VideoLoader/README.md)、[VideoWriter](VideoWriter/README.md)、[VideoCapture](VideoCapture/README.md)。Loader 保留逐帧播放、循环、帧号、FPS 和 start 信号；Writer 保留原 codec 列表与 start 每个 true 都切换录制的规则，不能把持续 true 当成持续录制。Capture 选择 None 会释放设备，刷新和驱动属性在可选 Controls 中操作。
 
-CSV_File、UDP_Send、TCP_Send、OSC_Send、Serial_Send 保持五个独立 fp。协议、优先级、EOL/打包、CSV 触发与轮换、必要安全修复见 [DataOutput](DataOutput/README.md)。依赖复用原固定版本 asio2、oscpack 与串口枚举，不使用 Qt 网络替代计算层。默认不会向未配置端点发送；测试只用隔离文件和本机回环。真实串口往返与目标端硬件协议需另行实测。
+CSV_File、UDP_Send、TCP_Send、OSC_Send、Serial_Send 保持五个独立 fp。协议、优先级、EOL/打包、CSV 触发与轮换、必要安全修复见 [DataOutput](DataOutput/README.md)。依赖复用原固定版本 asio2、oscpack 与串口枚举，不使用 Qt 网络替代计算层。默认不会向未配置端点发送。真实串口往返与目标端硬件协议需另行实测。
 
-本批可选 Controls 仍通过 NodeUiProvider 提供，关闭 Studio 构建时仅计算插件。配置/状态和实时连接、录制句柄分离，界面先释放再销毁节点和动态库。完整 71 节点契约及七份示例工程见 [examples](../docs/examples/README.md)。
+本批可选 Controls 仍通过 NodeUiProvider 提供，关闭 Studio 构建时仅计算插件。配置/状态和实时连接、录制句柄分离，界面先释放再销毁节点和动态库。

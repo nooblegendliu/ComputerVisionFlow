@@ -1,6 +1,8 @@
 # 第三方依赖
 
-本文记录依赖来源、构建配置和运行时部署边界。项目入口见[README](../README.md)，模块职责见[架构说明](../docs/architecture.md)，当前能力与待开发事项见[开发状态](../docs/development-status.md)。
+项目规划与任务统一从 [项目文档](../docs/README.md) 读取。旧项目测试与示例已移除；本文中的历史测试描述不代表当前可运行的测试或本次验收结果。
+
+本文记录依赖来源、构建配置和运行时部署边界。
 
 ## 来源、版本与许可
 
@@ -8,10 +10,10 @@
 | --- | --- | --- |
 | spdlog | [上游](https://github.com/gabime/spdlog)，通过本机 vcpkg classic 安装；当前包配置声明 1.17.0，项目未锁定版本 | MIT |
 | nlohmann_json | [上游](https://github.com/nlohmann/json)，通过本机 vcpkg classic 安装；当前包配置声明 3.12.0，项目未锁定版本 | MIT |
-| OpenCV | [上游](https://github.com/opencv/opencv)，使用本机预先构建的 MSVC x64 包，节点需要 `core`、`imgproc`、`video`、`features2d`，图片插件另需 `imgcodecs`；当前包配置声明 4.14.0，项目未锁定版本 | 当前安装包主许可证为 Apache-2.0，随包第三方组件保留各自许可 |
+| OpenCV | [上游](https://github.com/opencv/opencv)，使用本机预先构建的 MSVC x64 包，节点需要 `core`、`imgproc`、`video`、`features2d`、`dnn`；图片插件另需 `imgcodecs`，视频插件需要 `videoio`；当前包配置声明 4.14.0，项目未锁定版本 | 当前安装包主许可证为 Apache-2.0，随包第三方组件保留各自许可 |
 | DSPatch | 从 [FlowCV](https://github.com/FlowCV-org/FlowCV) 定制版 7.0.1 整理，参考提交 `b09c48edcc9437253da6049365d319fe036eff61`；源码位于 `../sdk/thirdParty/dspatch/` | 对应文件保留 BSD-2-Clause 声明 |
 | QtNodes | [nodeeditor](https://github.com/paceholder/nodeeditor) 3.0.16 源码快照，固定提交 `7c6341a66a8e46b8988140b9e60d892b6a3560b3`，位于 `nodeeditor/` | BSD-3-Clause，见[许可证](nodeeditor/LICENSE.rst) |
-| Qt | 本机 Qt SDK，当前个人配置使用 Qt 6.11.1 MSVC 2022 x64 套件；项目查找 Qt 6，未锁定小版本 | 以所安装 SDK 及其模块的许可证为准 |
+| Qt | 本机 Qt SDK，当前个人配置使用 Qt 6.11.1 MSVC 2022 x64 套件；项目要求 Qt 6.8 及以上，未锁定具体小版本 | 以所安装 SDK 及其模块的许可证为准 |
 
 本机包版本是当前环境事实，不是其他机器的版本约束；以包配置文件和实际安装内容为准，不根据目录名称推断版本。CMake 配置不会自动下载、安装或升级依赖，仓库没有 `vcpkg.json`。引入或修改外部源码时，应保留来源、版本、许可及本地改动说明。
 
@@ -21,9 +23,9 @@
 
 `third_party/CMakeLists.txt` 无条件查找 `spdlog` 和 `nlohmann_json`，均使用 `CONFIG REQUIRED GLOBAL`，让同级模块能访问导入目标。`VisionFlow::Utils` 的日志公开头文件使用 spdlog，因此以 `PUBLIC` 链接 `spdlog::spdlog`；fmt 由 spdlog 包配置传递，无需手写包含路径或库名。`VisionFlow::Sdk` 以 `PUBLIC` 链接 `VisionFlow::DSPatch` 和 `nlohmann_json::nlohmann_json`，后者供 `flowProperties.h` 等公开头文件使用。
 
-`nodes/CMakeLists.txt` 查找并公开链接 OpenCV `core`、`imgproc`、`video`、`features2d`；后两者分别用于 Background_Subtraction 与 Blob_Detector。`VisionFlow::Managers` 公开链接 Sdk，私有链接 Nodes 和 Utils。`VisionFlow::Editor` 公开链接 Managers、`QtNodes::QtNodes` 和 `Qt6::Widgets`，私有链接 Sdk 和 `Qt6::Core`；其公开头文件涉及的 QtNodes、Qt 与 Manager 使用要求由 CMake 传播。完整目标关系以[架构说明](../docs/architecture.md)为准。
+`nodes/CMakeLists.txt` 查找并公开链接 OpenCV `core`、`imgproc`、`video`、`features2d`、`dnn`；分别支撑基础处理、背景分割、Blob 与 DNN。`VisionFlow::Managers` 公开链接 Sdk，私有链接 Nodes 和 Utils。`VisionFlow::Editor` 公开链接 Managers、`QtNodes::QtNodes` 和 `Qt6::Widgets`，私有链接 Sdk 和 `Qt6::Core`；其公开头文件涉及的 QtNodes、Qt 与 Manager 使用要求由 CMake 传播。
 
-启用 `VISIONFLOW_BUILD_STUDIO`（默认 `ON`）时，顶层查找 Qt 6 的 `Core`、`Gui`、`Widgets`、`OpenGL`，构建 QtNodes、Editor 和 Qt Widgets 程序 VisionFlowStudio。关闭后不查找 Qt、不进入 QtNodes、不生成 Editor 或 Studio，只构建库；spdlog、JSON、OpenCV 和 DSPatch 仍是库构建所需依赖。
+启用 `VISIONFLOW_BUILD_STUDIO`（默认 `ON`）时，顶层查找 Qt 6.8 及以上的 `Core`、`Gui`、`Widgets`、`OpenGL`、`OpenGLWidgets`，构建 QtNodes、Editor 和 Qt Widgets 程序 VisionFlowStudio。关闭后不查找 Qt、不进入 QtNodes、不生成 Editor 或 Studio，只构建库；spdlog、JSON、OpenCV 和 DSPatch 仍是库构建所需依赖。
 
 Debug 未被全局禁止。MSVC Debug 使用 `/MDd`，Release 使用 `/MD`；节点 CMake 会检查 OpenCV 的 Debug 导入库，缺少时明确报错，不将 Release OpenCV 静默用于 Debug。当前个人预设选择 Release，以匹配现有运行库和部署设置。
 
@@ -86,4 +88,4 @@ cmake --build --preset local-x64-release
 
 Studio 的 Windows 构建后步骤先通过 `cmake -E copy_if_different` 复制 `$<TARGET_RUNTIME_DLLS:VisionFlowStudio>` 到可执行文件目录，再调用所用 Qt SDK 中的 `windeployqt`。该工具通过 `find_program(... REQUIRED)` 查找，参数固定为 `--release --no-translations --no-compiler-runtime`，用于部署 Qt 库和包括 `platforms/qwindows.dll` 在内的插件。缺少 windeployqt 会使配置失败。
 
-当前没有面向 VisionFlowStudio 的安装包或应用安装规则；构建后复制 DLL 不等同于完整安装分发。QtNodes 上游自带的安装声明不承担 Studio 打包。虽然项目允许满足依赖条件的 Debug 构建，windeployqt 仍固定部署 Release，因此 Debug 的部署尚未随构建配置切换。历史临时探针与旧构建目录的结果不作为当前运行验证；最新能力与验证范围统一记录在[开发状态](../docs/development-status.md)。
+当前没有面向 VisionFlowStudio 的安装包或应用安装规则；构建后复制 DLL 不等同于完整安装分发。QtNodes 上游自带的安装声明不承担 Studio 打包。虽然项目允许满足依赖条件的 Debug 构建，windeployqt 仍固定部署 Release，因此 Debug 的部署尚未随构建配置切换。

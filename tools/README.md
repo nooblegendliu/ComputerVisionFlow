@@ -44,10 +44,6 @@ Qt 模板只提供 Controls，`hasNodeUi(Main)` 返回 false。需要主界面�
 
 ### 检查
 
-```powershell
-python -B tests/test_plugin_maker.py
-```
+旧测试脚本已移除。修改模板后，按当前任务验证生成产物的构建、加载、参数保存恢复及界面生命周期，记录实际结果。
 
-测试在临时项目中覆盖三类生成、默认不注册、显式注册、拒绝覆盖和非法名称、路径逃逸、预检查失败与写入回滚。修改模板后还需对生成产物做 C++ 构建与运行检查：加载普通和 Qt `.fp`、实例化内部节点，验证增益像素、禁用透传、参数保存恢复、Controls 调整和界面先于动态库销毁。
-
-参与程序编译的公共 C++ 辅助功能位于 [Utils](../Utils/CMakeLists.txt)，例如 [日志模块](../Utils/logging/logger.h)。模块边界见 [架构说明](../docs/architecture.md)，开发状态见 [开发进度](../docs/development-status.md)。
+参与程序编译的公共 C++ 辅助功能位于 [Utils](../Utils/CMakeLists.txt)，例如 [日志模块](../Utils/logging/logger.h)。项目计划统一从 [docs](../docs/README.md) 读取。

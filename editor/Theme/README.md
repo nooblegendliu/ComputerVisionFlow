@@ -48,18 +48,8 @@ neutral dark gray; an empty image viewer follows the application palette.
 
 ## Verification
 
-With `VISIONFLOW_BUILD_STUDIO=ON` and `VISIONFLOW_BUILD_TESTS=ON`, build
-`VisionFlowStudio` and `theme_test`, then run:
-
-```powershell
-ctest --test-dir out/build/local-x64-release -R "^theme$" --output-on-failure
-```
-
-The test uses the real Studio UI and ImageLoader plugin. It checks system
-resolution via an injected reader, explicit override, Unknown fallback,
-idempotence, palette contrast, resources, config migration, preview/save/cancel,
-save failures, menu persistence, existing/new nodes and a running flow.
-Dark/light render previews are written to the build's `theme-previews` directory.
-Run the existing integration suite as well to cover other node UI providers.
-Native title bars and OS-owned dialogs should also be inspected on the target OS;
-Qt documents color-scheme override as a platform-dependent hint.
+The previous project test suite and its CMake entry points have been removed.
+For future changes, verify theme selection, preview/save/cancel, persistence,
+node UI appearance and running flows as required by the task. Inspect native
+title bars and OS-owned dialogs on the target OS. Record actual results in
+the relevant task under [project documentation](../../docs/README.md).

@@ -25,6 +25,7 @@
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QGraphicsSceneMouseEvent>
 #include <QtWidgets/QDialog>
+#include <QtWidgets/QInputDialog>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QMessageBox>
@@ -215,6 +216,8 @@ VisionFlowEditor::VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
         this, [this](QtNodes::NodeId id) { Q_EMIT nodeUiRequested(model_->flowNodeId(id)); });
     connect(model_, &VisionFlowGraphModel::nodeEnabledChanged,
         this, [this](QtNodes::NodeId) { notifyGraphChanged(); });
+    connect(model_, &VisionFlowGraphModel::nodeDisplayNameChanged,
+        this, [this](QtNodes::NodeId) { notifyGraphChanged(); });
 
     QObject::connect(scene_, &QGraphicsScene::selectionChanged,
         this, [this]() {
@@ -354,6 +357,11 @@ nlohmann::json VisionFlowEditor::getEditorState() const
             }}
         };
 
+        const QString customName = model_->customNodeDisplayName(qtId);
+        if (!customName.isEmpty()) {
+            nodeState["display_name"] = customName.toUtf8().toStdString();
+        }
+
         editorState.push_back(
             std::move(nodeState));
     }
@@ -372,6 +380,7 @@ bool VisionFlowEditor::restoreFromManager(
     {
         std::uint64_t flowId;
         QPointF position;
+        QString displayName;
     };
 
     std::vector<SavedPosition> savedPositions;
@@ -410,9 +419,19 @@ bool VisionFlowEditor::restoreFromManager(
                     return false;
                 }
 
+                QString displayName;
+                if (item.contains("display_name")) {
+                    if (!item["display_name"].is_string()) {
+                        return false;
+                    }
+                    displayName = QString::fromStdString(
+                        item["display_name"].get<std::string>());
+                }
+
                 savedPositions.push_back({
                     flowId,
-                    QPointF(x, y)
+                    QPointF(x, y),
+                    displayName
                     });
             }
         }
@@ -457,6 +476,11 @@ bool VisionFlowEditor::restoreFromManager(
             qtId,
             QtNodes::NodeRole::Position,
             item.position))
+        {
+            return false;
+        }
+        if (!item.displayName.isEmpty() &&
+            !model_->setNodeDisplayName(qtId, item.displayName))
         {
             return false;
         }
@@ -605,6 +629,26 @@ void VisionFlowEditor::showNodeMenu(QtNodes::NodeId nodeId)
         deleteMenuLater(menu);
         menu->addAction(QStringLiteral("Open Controls"), this, [this, nodeId] {
             Q_EMIT nodeUiRequested(model_->flowNodeId(nodeId));
+        });
+        menu->addAction(QStringLiteral("Rename Node..."), this, [this, nodeId] {
+            if (!model_->nodeExists(nodeId)) {
+                return;
+            }
+
+            bool accepted = false;
+            const QString currentName = model_->nodeData(
+                nodeId, QtNodes::NodeRole::Caption).toString();
+            const QString name = QInputDialog::getText(
+                this,
+                QStringLiteral("Rename Node"),
+                QStringLiteral("Display name (empty to restore default):"),
+                QLineEdit::Normal,
+                currentName,
+                &accepted);
+
+            if (accepted) {
+                model_->setNodeDisplayName(nodeId, name);
+            }
         });
         menu->addAction(QStringLiteral("Node Information"), this, [this, nodeId] {
             QMessageBox::information(this, QStringLiteral("Node Information"), model_->nodeInformation(nodeId));
@@ -779,7 +823,12 @@ nlohmann::json VisionFlowEditor::selectedSubgraph() const
         if (!params.empty()) node["params"] = json::parse(params);
         result["nodes"].push_back(std::move(node));
         const auto p = model_->nodeData(id, QtNodes::NodeRole::Position).toPointF();
-        result["editor"].push_back({{"id", flowId}, {"location", {{"x", p.x()}, {"y", p.y()}}}});
+        json editorNode = {{"id", flowId}, {"location", {{"x", p.x()}, {"y", p.y()}}}};
+        const QString customName = model_->customNodeDisplayName(id);
+        if (!customName.isEmpty()) {
+            editorNode["display_name"] = customName.toUtf8().toStdString();
+        }
+        result["editor"].push_back(std::move(editorNode));
     }
     for (std::uint64_t i=0; i<manager_.GetWireCount(); ++i) {
         const auto wire = manager_.GetWireInfoFromIndex(i);
@@ -851,6 +900,7 @@ bool VisionFlowEditor::pasteSubgraph(const nlohmann::json& state, QPointF anchor
                 throw std::runtime_error("Invalid enabled state");
         }
         std::unordered_map<std::uint64_t, QPointF> positions;
+        std::unordered_map<std::uint64_t, QString> displayNames;
         QPointF origin;
         bool hasOrigin = false;
         if (state.contains("editor") && !state["editor"].is_null()) {
@@ -864,6 +914,16 @@ bool VisionFlowEditor::pasteSubgraph(const nlohmann::json& state, QPointF anchor
                 // Original FlowCV can include positions for nodes omitted from its node list.
                 if (!ids.count(id)) continue;
                 if (!positions.emplace(id, position).second) throw std::runtime_error("Duplicate clipboard node position");
+                if (item.contains("display_name")) {
+                    if (!item["display_name"].is_string()) {
+                        throw std::runtime_error("Invalid clipboard display name");
+                    }
+                    const QString name = QString::fromStdString(
+                        item["display_name"].get<std::string>());
+                    if (!name.trimmed().isEmpty()) {
+                        displayNames.emplace(id, name);
+                    }
+                }
                 if (!hasOrigin) { origin = position; hasOrigin = true; }
             }
         }
@@ -897,6 +957,9 @@ bool VisionFlowEditor::pasteSubgraph(const nlohmann::json& state, QPointF anchor
             const auto position = positions.find(oldId);
             model_->setNodeData(id, QtNodes::NodeRole::Position,
                 position == positions.end() ? anchor : position->second + anchor - origin);
+            if (const auto name = displayNames.find(oldId); name != displayNames.end()) {
+                model_->setNodeDisplayName(id, name->second);
+            }
             Q_EMIT model_->nodeUpdated(id);
         }
         for (const auto& wire : wires) {

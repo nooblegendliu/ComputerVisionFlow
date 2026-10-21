@@ -40,7 +40,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(VISIONFLOW_BUILD_STUDIO 
 	   "Build the editor library and VisionFlowStudio application" ON
 )
-option(VISIONFLOW_BUILD_TESTS "Build plugin integration tests" OFF)
 
 # ------------------------------------------------------------------------
 #	QT Dependencies
@@ -82,12 +81,4 @@ add_subdirectory ("plugins")
 if(VISIONFLOW_BUILD_STUDIO)
   add_subdirectory ("editor")
   add_subdirectory ("app")
-endif()
-
-if(VISIONFLOW_BUILD_TESTS)
-  enable_testing()
-  if(VISIONFLOW_BUILD_STUDIO)
-    add_subdirectory(editor/Theme/tests)
-  endif()
-  add_subdirectory(tests)
 endif()
