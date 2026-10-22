@@ -1,0 +1,318 @@
+{
+    "connections": [
+        {
+            "from_id": 1001,
+            "from_idx": 0,
+            "to_id": 2001,
+            "to_idx": 0
+        },
+        {
+            "from_id": 2001,
+            "from_idx": 0,
+            "to_id": 3001,
+            "to_idx": 0
+        },
+        {
+            "from_id": 3001,
+            "from_idx": 0,
+            "to_id": 4001,
+            "to_idx": 0
+        },
+        {
+            "from_id": 4001,
+            "from_idx": 0,
+            "to_id": 5001,
+            "to_idx": 0
+        },
+        {
+            "from_id": 4001,
+            "from_idx": 1,
+            "to_id": 5001,
+            "to_idx": 1
+        },
+        {
+            "from_id": 5001,
+            "from_idx": 0,
+            "to_id": 6001,
+            "to_idx": 0
+        },
+        {
+            "from_id": 5001,
+            "from_idx": 1,
+            "to_id": 7001,
+            "to_idx": 0
+        }
+    ],
+    "editor": [
+        {
+            "id": 1001,
+            "location": {
+                "x": -696.8287462400874,
+                "y": 261.73567541700845
+            }
+        },
+        {
+            "id": 2001,
+            "location": {
+                "x": -731.9534472700756,
+                "y": 648.1073867468781
+            }
+        },
+        {
+            "id": 3001,
+            "location": {
+                "x": -717.2237339349191,
+                "y": 760.0532080940661
+            }
+        },
+        {
+            "id": 4001,
+            "location": {
+                "x": -715.1842351654357,
+                "y": 855.2298173366145
+            }
+        },
+        {
+            "id": 5001,
+            "location": {
+                "x": -955.8450899644514,
+                "y": 1206.0236056877213
+            }
+        },
+        {
+            "id": 6001,
+            "location": {
+                "x": -897.6513917418647,
+                "y": 1891.5671254033352
+            }
+        },
+        {
+            "id": 7001,
+            "location": {
+                "x": -447.8701529289344,
+                "y": 1879.3024358895673
+            }
+        },
+        {
+            "annotation_type": "group",
+            "location": {
+                "x": -804.3183999999997,
+                "y": 168.58079999999995
+            },
+            "size": {
+                "height": 415.0,
+                "width": 598.0
+            },
+            "text": "图像输入与模式选择",
+            "uid": 1
+        },
+        {
+            "annotation_type": "comment",
+            "location": {
+                "x": -431.0,
+                "y": 173.0
+            },
+            "size": {
+                "height": 70.0,
+                "width": 220.0
+            },
+            "text": "相机、检测模式、图像来源",
+            "uid": 2
+        },
+        {
+            "annotation_type": "group",
+            "location": {
+                "x": -803.0,
+                "y": 596.0
+            },
+            "size": {
+                "height": 369.4,
+                "width": 601.8
+            },
+            "text": "图像预处理",
+            "uid": 3
+        },
+        {
+            "annotation_type": "comment",
+            "location": {
+                "x": -440.0,
+                "y": 600.0
+            },
+            "size": {
+                "height": 70.0,
+                "width": 232.0
+            },
+            "text": "灰度、滤波、边缘图",
+            "uid": 4
+        },
+        {
+            "annotation_type": "group",
+            "location": {
+                "x": -1224.0,
+                "y": 973.2
+            },
+            "size": {
+                "height": 404.0,
+                "width": 566.4
+            },
+            "text": "左侧边缘计算",
+            "uid": 5
+        },
+        {
+            "annotation_type": "comment",
+            "location": {
+                "x": -895.1999999999999,
+                "y": 982.8000000000002
+            },
+            "size": {
+                "height": 70.0,
+                "width": 230.39999999999998
+            },
+            "text": "卡尺、ROI、边缘拟合",
+            "uid": 6
+        },
+        {
+            "annotation_type": "group",
+            "location": {
+                "x": -640.7999999999998,
+                "y": 974.3999999999996
+            },
+            "size": {
+                "height": 405.20000000000005,
+                "width": 600.0
+            },
+            "text": "右侧边缘检测",
+            "uid": 7
+        },
+        {
+            "annotation_type": "group",
+            "location": {
+                "x": -953.9999999999998,
+                "y": 1391.9999999999995
+            },
+            "size": {
+                "height": 418.4000000000001,
+                "width": 633.6
+            },
+            "text": "几何计算",
+            "uid": 8
+        },
+        {
+            "annotation_type": "group",
+            "location": {
+                "x": -955.6544830183616,
+                "y": 1820.0745837511013
+            },
+            "size": {
+                "height": 485.47791951508543,
+                "width": 642.0787548992798
+            },
+            "text": "位置修正与结果判断",
+            "uid": 9
+        },
+        {
+            "annotation_type": "group",
+            "location": {
+                "x": -964.2296960167714,
+                "y": 2334.0930361863097
+            },
+            "size": {
+                "height": 516.0704010573327,
+                "width": 647.7440292589554
+            },
+            "text": "结果输出",
+            "uid": 10
+        }
+    ],
+    "nodes": [
+        {
+            "enabled": true,
+            "id": 1001,
+            "name": "Image_Loader",
+            "num": 0,
+            "params": {
+                "fps": 30,
+                "fps_index": 7,
+                "image_path": "D:/CodeSpace/projects/ComputerVisionFlow/docs/examples/edge_test.png"
+            }
+        },
+        {
+            "enabled": true,
+            "id": 2001,
+            "name": "Blur",
+            "num": 0,
+            "params": {
+                "blur_amt_h": 1.0,
+                "blur_amt_v": 1.0,
+                "blur_mode": 0,
+                "lock_h_v": false
+            }
+        },
+        {
+            "enabled": true,
+            "id": 3001,
+            "name": "Canny",
+            "num": 0,
+            "params": {
+                "high_thresh": 150.0,
+                "kernel_size": 3,
+                "low_thresh": 50.0,
+                "norm_type": 0,
+                "thresh_mode": 0
+            }
+        },
+        {
+            "enabled": true,
+            "id": 4001,
+            "name": "Hough_Lines",
+            "num": 0,
+            "params": {
+                "draw_lines": false,
+                "hough_mode": 0,
+                "line_color": {
+                    "B": 0.0,
+                    "G": 0.0,
+                    "R": 1.0
+                },
+                "line_thickness": 3,
+                "max_line_gap": 10.0,
+                "max_theta": 360.0,
+                "min_line_len": 100.0,
+                "min_theta": 0.0,
+                "rho": 1.0,
+                "thresh": 100
+            }
+        },
+        {
+            "enabled": true,
+            "id": 5001,
+            "name": "Line_Intersections",
+            "num": 0,
+            "params": {
+                "draw_points": true,
+                "min_angle": 60.0,
+                "min_dist": 10.0,
+                "point_color": {
+                    "B": 1.0,
+                    "G": 1.0,
+                    "R": 0.0
+                },
+                "point_radius": 4,
+                "point_solid": false,
+                "point_thickness": 1
+            }
+        },
+        {
+            "enabled": true,
+            "id": 6001,
+            "name": "Viewer",
+            "num": 0
+        },
+        {
+            "enabled": true,
+            "id": 7001,
+            "name": "Json_Viewer",
+            "num": 0
+        }
+    ]
+}
