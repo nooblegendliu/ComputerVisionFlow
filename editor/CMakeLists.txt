@@ -8,6 +8,8 @@ add_library(VisionFlowEditor STATIC
     NodeUi/NodeUiRegistry.cpp
     VisionFlowEditor.h
     VisionFlowEditor.cpp
+    Graph/EditorAnnotationItem.h
+    Graph/EditorAnnotationItem.cpp
 
     Graph/VisionFlowGraphModel.hpp 
     Graph/VisionFlowGraphModel.cpp 

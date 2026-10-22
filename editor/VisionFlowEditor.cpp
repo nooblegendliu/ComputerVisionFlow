@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <vector>
 #include <set>
+#include <limits>
 
 #include <QtCore/QTimer>
 #include <QtCore/QMap>
@@ -25,6 +26,7 @@
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QGraphicsSceneMouseEvent>
 #include <QtWidgets/QDialog>
+#include <QtWidgets/QGraphicsSceneContextMenuEvent>
 #include <QtWidgets/QInputDialog>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QListWidget>
@@ -129,6 +131,53 @@ namespace {
             menu, &QObject::deleteLater);
     }
 
+    struct AnnotationRecord
+    {
+        EditorAnnotationItem::Kind kind;
+        std::uint64_t uid;
+        QString text;
+        QPointF position;
+        QSizeF size;
+    };
+
+    nlohmann::json annotationToJson(const EditorAnnotationItem& item)
+    {
+        const QPointF p = item.pos();
+        const QSizeF s = item.annotationSize();
+        return {
+            {"annotation_type", item.kind() == EditorAnnotationItem::Kind::Group ? "group" : "comment"},
+            {"uid", item.uid()},
+            {"text", item.text().toUtf8().toStdString()},
+            {"location", {{"x", p.x()}, {"y", p.y()}}},
+            {"size", {{"width", s.width()}, {"height", s.height()}}}
+        };
+    }
+
+    AnnotationRecord annotationFromJson(const nlohmann::json& data)
+    {
+        const std::string kind = data.at("annotation_type").get<std::string>();
+        if (kind != "group" && kind != "comment")
+            throw std::runtime_error("Invalid editor annotation type");
+        const std::uint64_t uid = data.at("uid").get<std::uint64_t>();
+        if (uid == 0 || uid == std::numeric_limits<std::uint64_t>::max())
+            throw std::runtime_error("Invalid editor annotation ID");
+        const auto& p = data.at("location");
+        const auto& s = data.at("size");
+        const double x = p.at("x").get<double>();
+        const double y = p.at("y").get<double>();
+        const double w = s.at("width").get<double>();
+        const double h = s.at("height").get<double>();
+        if (!std::isfinite(x) || !std::isfinite(y) ||
+            !std::isfinite(w) || !std::isfinite(h) || w <= 0 || h <= 0)
+            throw std::runtime_error("Invalid editor annotation geometry");
+        return {
+            kind == "group" ? EditorAnnotationItem::Kind::Group : EditorAnnotationItem::Kind::Comment,
+            uid,
+            QString::fromStdString(data.at("text").get<std::string>()),
+            QPointF(x, y), QSizeF(w, h)
+        };
+    }
+
 } // namespace
 
 VisionFlowEditor::VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
@@ -160,6 +209,11 @@ VisionFlowEditor::VisionFlowEditor(FlowCV::FlowCV_Manager& manager,
         });
 
     scene_->setNodePainter(std::make_unique<FlowNodePainter>(manager_));
+    connect(model_, &QtNodes::AbstractGraphModel::modelReset,
+        this, [this] {
+            annotations_.clear();
+            nextAnnotationUid_ = 1;
+        });
     auto connectionPainter = std::make_unique<FlowConnectionPainter>();
     auto* animatedPainter = connectionPainter.get();
     scene_->setConnectionPainter(std::move(connectionPainter));
@@ -366,6 +420,11 @@ nlohmann::json VisionFlowEditor::getEditorState() const
             std::move(nodeState));
     }
 
+    for (const auto& [uid, item] : annotations_) {
+        (void)uid;
+        editorState.push_back(annotationToJson(*item));
+    }
+
     return editorState;
 }
 
@@ -384,6 +443,8 @@ bool VisionFlowEditor::restoreFromManager(
     };
 
     std::vector<SavedPosition> savedPositions;
+    std::vector<AnnotationRecord> savedAnnotations;
+    std::set<std::uint64_t> savedAnnotationIds;
 
     // ---------------------------------------------------------
     // 1. 读取项目中的 editor 字段。
@@ -401,6 +462,14 @@ bool VisionFlowEditor::restoreFromManager(
 
             for (const auto& item : state["editor"])
             {
+                if (item.contains("annotation_type")) {
+                    auto annotation = annotationFromJson(item);
+                    if (!savedAnnotationIds.insert(annotation.uid).second)
+                        return false;
+                    savedAnnotations.push_back(std::move(annotation));
+                    continue;
+                }
+
                 const std::uint64_t flowId =
                     item.at("id").get<std::uint64_t>();
 
@@ -444,6 +513,9 @@ bool VisionFlowEditor::restoreFromManager(
     // ---------------------------------------------------------
     // 2. 清理当前选择。
     // ---------------------------------------------------------
+    // Remove old project annotations only after parsing the new editor state.
+    clearAnnotations();
+
     scene_->clearSelection();
 
     // ---------------------------------------------------------
@@ -484,6 +556,12 @@ bool VisionFlowEditor::restoreFromManager(
         {
             return false;
         }
+    }
+
+    // Restore Group and Comment decorations (never create FlowCV nodes).
+    for (const auto& item : savedAnnotations) {
+        if (!addAnnotation(item.kind, item.position, item.size,
+                           item.text, item.uid)) return false;
     }
 
     // ---------------------------------------------------------
@@ -556,16 +634,22 @@ void VisionFlowEditor::deleteSelection()
     // 必须先复制 ID，不能在遍历 selectedItems() 时删除图形对象。
     std::vector<QtNodes::NodeId> nodes;
     std::vector<QtNodes::ConnectionId> connections;
+    std::vector<std::uint64_t> annotationsToRemove;
 
     for (QGraphicsItem* item : scene_->selectedItems()) {
         if (auto* node = dynamic_cast<QtNodes::NodeGraphicsObject*>(item)) {
             nodes.push_back(node->nodeId());
+        }
+        else if (auto* annotation = dynamic_cast<EditorAnnotationItem*>(item)) {
+            annotationsToRemove.push_back(annotation->uid());
         }
         else if (auto* connection =
             dynamic_cast<QtNodes::ConnectionGraphicsObject*>(item)) {
             connections.push_back(connection->connectionId());
         }
     }
+
+    for (std::uint64_t uid : annotationsToRemove) removeAnnotation(uid);
 
     // 优先删除选中的连线；与选中节点关联的连线由 Manager 自己清理。
     for (auto const& connection : connections) {
@@ -601,6 +685,105 @@ void VisionFlowEditor::resetZoom()
 }
 
 
+EditorAnnotationItem* VisionFlowEditor::addAnnotation(
+    EditorAnnotationItem::Kind kind, QPointF position, QSizeF size,
+    const QString& text, std::uint64_t uid)
+{
+    if (uid == 0) {
+        if (nextAnnotationUid_ == std::numeric_limits<std::uint64_t>::max()) return nullptr;
+        uid = nextAnnotationUid_++;
+    } else {
+        if (uid == std::numeric_limits<std::uint64_t>::max() || annotations_.count(uid))
+            return nullptr;
+        nextAnnotationUid_ = std::max(nextAnnotationUid_, uid + 1);
+    }
+
+    auto* item = new EditorAnnotationItem(kind, uid, text, size);
+    scene_->addItem(item);
+    item->setPos(position);
+    item->setModifiedHandler([this] { notifyGraphChanged(); });
+    item->setEditHandler([this](EditorAnnotationItem* i) { editAnnotation(i); });
+    item->setMenuHandler([this](EditorAnnotationItem* i, const QPoint& point) {
+        showAnnotationMenu(i, point);
+    });
+    annotations_.emplace(uid, item);
+    notifyGraphChanged();
+    return item;
+}
+
+void VisionFlowEditor::removeAnnotation(std::uint64_t uid)
+{
+    const auto it = annotations_.find(uid);
+    if (it == annotations_.end()) return;
+    EditorAnnotationItem* item = it->second;
+    annotations_.erase(it);
+    scene_->removeItem(item);
+    delete item;
+    notifyGraphChanged();
+}
+
+void VisionFlowEditor::clearAnnotations()
+{
+    for (auto& [uid, item] : annotations_) {
+        (void)uid;
+        scene_->removeItem(item);
+        delete item;
+    }
+    annotations_.clear();
+    nextAnnotationUid_ = 1;
+}
+
+void VisionFlowEditor::editAnnotation(EditorAnnotationItem* item)
+{
+    if (!item || !annotations_.count(item->uid())) return;
+    bool accepted = false;
+    QString text;
+    if (item->kind() == EditorAnnotationItem::Kind::Group) {
+        text = QInputDialog::getText(this, QStringLiteral("Edit Group"),
+                QStringLiteral("Group title:"), QLineEdit::Normal,
+                item->text(), &accepted).trimmed();
+        if (accepted && text.isEmpty()) return;
+    } else {
+        text = QInputDialog::getMultiLineText(this,
+                QStringLiteral("Edit Comment"),
+                QStringLiteral("Comment text:"), item->text(), &accepted);
+    }
+    if (accepted) item->setText(text);
+}
+
+void VisionFlowEditor::showAnnotationMenu(EditorAnnotationItem* item,
+                                          const QPoint& screenPosition)
+{
+    if (!item) return;
+    const std::uint64_t uid = item->uid();
+    QTimer::singleShot(0, this, [this, uid, screenPosition] {
+        const auto it = annotations_.find(uid);
+        if (it == annotations_.end()) return;
+        auto* menu = new QMenu;
+        deleteMenuLater(menu);
+        menu->addAction(it->second->kind() == EditorAnnotationItem::Kind::Group
+            ? QStringLiteral("Edit Group Title...") : QStringLiteral("Edit Comment..."),
+            this, [this, uid] {
+                auto found = annotations_.find(uid);
+                if (found != annotations_.end()) editAnnotation(found->second);
+            });
+        menu->addAction(QStringLiteral("Copy Selection"), this,
+            [this, uid] {
+                if (auto found = annotations_.find(uid); found != annotations_.end()) {
+                    if (!found->second->isSelected()) {
+                        scene_->clearSelection();
+                        found->second->setSelected(true);
+                    }
+                    copySelection();
+                }
+            });
+        menu->addSeparator();
+        menu->addAction(QStringLiteral("Delete"), this,
+            [this, uid] { removeAnnotation(uid); });
+        menu->popup(screenPosition);
+    });
+}
+
 QMenu* VisionFlowEditor::createCanvasMenu(QPointF scenePosition)
 {
     auto* menu = new QMenu;
@@ -608,6 +791,21 @@ QMenu* VisionFlowEditor::createCanvasMenu(QPointF scenePosition)
 
     QMenu* addMenu = menu->addMenu(QStringLiteral("Add Node"));
     populateNodeMenu(addMenu, scenePosition);
+    menu->addSeparator();
+    menu->addAction(QStringLiteral("Add Group"), this, [this, scenePosition] {
+        scene_->clearSelection();
+        if (auto* item = addAnnotation(EditorAnnotationItem::Kind::Group,
+                scenePosition, QSizeF(420, 260), QStringLiteral("Group")))
+            item->setSelected(true);
+    });
+    menu->addAction(QStringLiteral("Add Comment"), this, [this, scenePosition] {
+        scene_->clearSelection();
+        if (auto* item = addAnnotation(EditorAnnotationItem::Kind::Comment,
+                scenePosition, QSizeF(270, 140), QStringLiteral("Comment"))) {
+            item->setSelected(true);
+            editAnnotation(item);
+        }
+    });
     menu->addAction(QStringLiteral("Paste"), this, &VisionFlowEditor::pasteSelection);
     menu->addAction(showFlowAction_);
     menu->addSeparator();
@@ -806,6 +1004,11 @@ nlohmann::json VisionFlowEditor::selectedSubgraph() const
     AutoTickPause pause(manager_);
     using nlohmann::json;
     json result = {{"nodes", json::array()}, {"connections", json::array()}, {"editor", json::array()}};
+    result["annotations"] = json::array();
+    for (QGraphicsItem* item : scene_->selectedItems()) {
+        if (auto* annotation = dynamic_cast<EditorAnnotationItem*>(item))
+            result["annotations"].push_back(annotationToJson(*annotation));
+    }
     std::vector<QtNodes::NodeId> selected;
     std::unordered_set<std::uint64_t> ids;
     for (auto* item : scene_->selectedItems()) {
@@ -843,7 +1046,7 @@ bool VisionFlowEditor::copySelection()
 {
     try {
         const auto state = selectedSubgraph();
-        if (state["nodes"].empty()) return false;
+        if (state["nodes"].empty() && state["annotations"].empty()) return false;
         QApplication::clipboard()->setText(QString::fromStdString(state.dump(2)));
         return true;
     } catch (const std::exception& error) {
@@ -876,6 +1079,7 @@ bool VisionFlowEditor::pasteSubgraph(const nlohmann::json& state, QPointF anchor
 {
     AutoTickPause pause(manager_);
     std::vector<QtNodes::NodeId> created;
+    std::vector<std::uint64_t> createdAnnotations;
     try {
         auto integer = [](const nlohmann::json& value, bool nonzero) -> std::uint64_t {
             if (!value.is_number_integer() ||
@@ -886,8 +1090,13 @@ bool VisionFlowEditor::pasteSubgraph(const nlohmann::json& state, QPointF anchor
             return result;
         };
         if (!std::isfinite(anchor.x()) || !std::isfinite(anchor.y())) throw std::runtime_error("Invalid paste position");
-        if (!state.is_object() || !state.contains("nodes") || !state["nodes"].is_array() || state["nodes"].empty())
+        if (!state.is_object() || !state.contains("nodes") || !state["nodes"].is_array())
             throw std::runtime_error("Clipboard does not contain a FlowCV subgraph");
+        if (state.contains("annotations") && !state["annotations"].is_array())
+            throw std::runtime_error("Invalid clipboard annotations");
+        if (state["nodes"].empty() &&
+            (!state.contains("annotations") || state["annotations"].empty()))
+            throw std::runtime_error("Clipboard does not contain nodes or annotations");
         const auto available = availableNodeTypes();
         std::unordered_set<std::uint64_t> ids;
         for (const auto& node : state["nodes"]) {
@@ -925,6 +1134,14 @@ bool VisionFlowEditor::pasteSubgraph(const nlohmann::json& state, QPointF anchor
                     }
                 }
                 if (!hasOrigin) { origin = position; hasOrigin = true; }
+            }
+        }
+        std::vector<AnnotationRecord> copiedAnnotations;
+        if (state.contains("annotations")) {
+            for (const auto& raw : state["annotations"]) {
+                auto item = annotationFromJson(raw);
+                if (!hasOrigin) { origin = item.position; hasOrigin = true; }
+                copiedAnnotations.push_back(std::move(item));
             }
         }
         struct Wire { std::uint64_t from, to; QtNodes::PortIndex out, in; };
@@ -968,11 +1185,23 @@ bool VisionFlowEditor::pasteSubgraph(const nlohmann::json& state, QPointF anchor
             model_->addConnection(connection);
             if (!model_->connectionExists(connection)) throw std::runtime_error("Could not connect pasted nodes");
         }
+        for (const auto& annotation : copiedAnnotations) {
+            EditorAnnotationItem* newItem = addAnnotation(annotation.kind,
+                annotation.position + anchor - origin, annotation.size, annotation.text);
+            if (!newItem) throw std::runtime_error("Could not create pasted annotation");
+            createdAnnotations.push_back(newItem->uid());
+        }
         scene_->clearSelection();
         for (auto id : created) if (auto* item = scene_->nodeGraphicsObject(id)) item->setSelected(true);
+        for (std::uint64_t uid : createdAnnotations) {
+            auto it = annotations_.find(uid);
+            if (it != annotations_.end()) it->second->setSelected(true);
+        }
         view_->setFocus();
         return true;
     } catch (const std::exception& error) {
+        for (auto i = createdAnnotations.rbegin(); i != createdAnnotations.rend(); ++i)
+            removeAnnotation(*i);
         for (auto i=created.rbegin(); i!=created.rend(); ++i) model_->deleteNode(*i);
         Q_EMIT operationFailed(QStringLiteral("Paste failed: %1").arg(QString::fromUtf8(error.what())));
         return false;

@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
+#include <QtCore/QPoint>
+#include <QtCore/QSizeF>
 
 #include <QtCore/QPointF>
 #include <QtCore/QStringList>
@@ -8,6 +11,7 @@
 #include <QtWidgets/QWidget>
 
 #include <nlohmann/json.hpp>
+#include "Graph/EditorAnnotationItem.h"
 
 class QAction;
 class QMenu;
@@ -101,6 +105,13 @@ Q_SIGNALS:
     void nodeUiRequested(std::uint64_t flowId);
 
 private:
+    EditorAnnotationItem* addAnnotation(EditorAnnotationItem::Kind kind,
+        QPointF position, QSizeF size, const QString& text, std::uint64_t uid = 0);
+    void removeAnnotation(std::uint64_t uid);
+    void clearAnnotations();
+    void editAnnotation(EditorAnnotationItem* item);
+    void showAnnotationMenu(EditorAnnotationItem* item, const QPoint& screenPosition);
+
     QMenu* createCanvasMenu(QPointF scenePosition);
 
     void showNodeMenu(QtNodes::NodeId nodeId);
@@ -119,5 +130,8 @@ private:
     QtNodes::BasicGraphicsScene* scene_ = nullptr;
 
     QtNodes::GraphicsView* view_ = nullptr;
+    // editor-only objects, not FlowCV nodes. Real FlowCV IDs are unaffected.
+    std::map<std::uint64_t, EditorAnnotationItem*> annotations_;
+    std::uint64_t nextAnnotationUid_ = 1;
     QAction* showFlowAction_ = nullptr;
 };
