@@ -72,29 +72,21 @@ add_library(VisionFlowNodes STATIC
     # Node registration includes
     internal_nodes.h
 
-    # Add
     Add/add.hpp
     Add/add.cpp
-
-    # Solid
     Solid/solid.hpp
     Solid/solid.cpp
-
-    # Viewer
     Viewer/viewer.hpp
     Viewer/viewer.cpp
-    
-    # Blur
     Blur/blur.hpp
     Blur/blur.cpp 
-    
-    # Resize
     Resize/resize.hpp
     Resize/resize.cpp 
-    
-    # Canny
     Canny/canny.hpp 
-    Canny/canny.cpp)
+    Canny/canny.cpp 
+    ConditionCheck/condition_check.hpp
+    ConditionCheck/condition_check.cpp
+)
 
 add_library(
     VisionFlow::Nodes 

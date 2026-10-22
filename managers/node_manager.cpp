@@ -70,6 +70,7 @@ namespace FlowCV
 		RegisterNode<DSPatch::DSPatchables::Solid>();
 		RegisterNode<DSPatch::DSPatchables::Viewer>();
 		//...后续补充其他节点
+		RegisterNode<DSPatch::DSPatchables::ConditionCheck>();
 
 		std::sort(node_list_.begin(), node_list_.end(),
 			[](const NodeDescription& lhs, const NodeDescription& rhs)
